@@ -12,11 +12,46 @@ mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/efootball')
 // --- SCHEMAS ---
 
 // Player Schema
+// Expand the Player Schema
 const PlayerSchema = new mongoose.Schema({
-    name: String, nickname: String, image: String, teamName: String, teamLogo: String
+    name: String, nickname: String, image: String, teamName: String, teamLogo: String,
+    // New Stats
+    auctionPrice: { type: Number, default: 0 },
+    marketValue: { type: Number, default: 0 },
+    bdrPoints: { type: Number, default: 0 },
+    squadImage: String,
+    // Season Summary
+    seasonStats: {
+        wins: { type: Number, default: 0 },
+        draws: { type: Number, default: 0 },
+        losses: { type: Number, default: 0 },
+        goals: { type: Number, default: 0 }
+    },
+    // Trophies
+    trophies: {
+        ballonDor: { type: Number, default: 0 },
+        ucl: { type: Number, default: 0 },
+        league: { type: Number, default: 0 }
+    },
+    // Match History (Array of objects)
+    matchHistory: [{
+        date: String, opponent: String, score: String, result: String // WIN or LOSS
+    }]
 });
+
 const Player = mongoose.model('Player', PlayerSchema);
 
+// GET Single Player by ID
+app.get('/api/players/:id', async (req, res) => {
+    const player = await Player.findById(req.params.id);
+    res.json(player);
+});
+
+// UPDATE Player Stats (Dashboard)
+app.put('/api/players/:id', async (req, res) => {
+    await Player.findByIdAndUpdate(req.params.id, req.body);
+    res.json({ success: true });
+});
 // Stats Schema (To control the Blue Area from your first image)
 const StatsSchema = new mongoose.Schema({
     bdrLeader: String,
