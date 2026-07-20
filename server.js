@@ -54,5 +54,19 @@ app.put('/api/stats', async (req, res) => {
     res.json({ success: true });
 });
 
+// Add these to your existing server.js
+
+const ADMIN_EMAIL = "admin@tamil.com";
+const ADMIN_PASS = "admin123"; // You should use environment variables for this!
+
+app.post('/api/login', (req, res) => {
+    const { email, password } = req.body;
+    if (email === ADMIN_EMAIL && password === ADMIN_PASS) {
+        res.json({ success: true });
+    } else {
+        res.status(401).json({ success: false });
+    }
+});
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Admin Server running on ${PORT}`));
