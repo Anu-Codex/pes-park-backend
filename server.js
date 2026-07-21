@@ -14,39 +14,43 @@ mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/efootball')
 // Player Schema
 // Expand the Player Schema
 const PlayerSchema = new mongoose.Schema({
-    name: String, nickname: String, image: String, teamName: String, teamLogo: String,
-    // New Stats
+    name: { type: String, required: true },
+    nickname: String,
+    image: String,
+    teamName: String,
+    teamLogo: String,
+    
+    // Financials & Points
     auctionPrice: { type: Number, default: 0 },
     marketValue: { type: Number, default: 0 },
     bdrPoints: { type: Number, default: 0 },
     squadImage: String,
-    // match history 
+
+    // Match Records (Structured for H2H calculation)
     matches: [{
-        opponentId: String, // To help with H2H lookup
         opponentName: String,
         myScore: Number,
         oppScore: Number,
         result: String, // WIN, LOSS, DRAW
-        date: { type: String, default: () => new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) }
-    }]
-}); 
-    // Season Summary
+        date: { type: Date, default: Date.now } // Store as actual Date for sorting
+    }],
+
+    // Season Summary (Manual totals)
     seasonStats: {
         wins: { type: Number, default: 0 },
         draws: { type: Number, default: 0 },
         losses: { type: Number, default: 0 },
         goals: { type: Number, default: 0 }
     },
-    // Trophies
+
+    // Trophies count
     trophies: {
         ballonDor: { type: Number, default: 0 },
         ucl: { type: Number, default: 0 },
-        league: { type: Number, default: 0 }
-    },
-    // Match History (Array of objects)
-    matchHistory: [{
-        date: String, opponent: String, score: String, result: String // WIN or LOSS
-    }]
+        league: { type: Number, default: 0 },
+        weekly: { type: Number, default: 0 },
+        goldenBoot: { type: Number, default: 0 }
+    }
 });
 
 const Player = mongoose.model('Player', PlayerSchema);
