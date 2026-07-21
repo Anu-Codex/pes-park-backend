@@ -50,7 +50,8 @@ const PlayerSchema = new mongoose.Schema({
         league: { type: Number, default: 0 },
         weekly: { type: Number, default: 0 },
         goldenBoot: { type: Number, default: 0 }
-    }
+    },
+    isCaptain: { type: Boolean, default: false }
 });
 
 const Player = mongoose.model('Player', PlayerSchema);
@@ -266,6 +267,15 @@ app.put('/api/teams/assign', async (req, res) => {
             { $set: { teamName: teamName, teamLogo: teamLogo } }
         );
         res.json({ success: true, message: "Players assigned to team!" });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+app.put('/api/players/:id/captain', async (req, res) => {
+    try {
+        const { isCaptain } = req.body;
+        await Player.findByIdAndUpdate(req.params.id, { isCaptain });
+        res.json({ success: true, message: "Captaincy updated!" });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
