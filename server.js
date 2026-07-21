@@ -232,6 +232,30 @@ app.post('/api/weekend/ranks', async (req, res) => {
     await WeekendRank.findOneAndUpdate({category: req.body.category, playerName: req.body.playerName}, req.body, {upsert: true});
     res.json({ success: true });
 });
+// --- QUICK TOUR SCHEMAS ---
+const QuickFixture = mongoose.model('QuickFixture', new mongoose.Schema({
+    type: { type: String, default: "League" },
+    playerA: String, playerB: String,
+    scoreA: { type: Number, default: 0 }, scoreB: { type: Number, default: 0 },
+    status: { type: String, default: "Upcoming" }
+}));
+
+const QuickRank = mongoose.model('QuickRank', new mongoose.Schema({
+    category: String, playerName: String, value: Number
+}));
+
+// --- QUICK TOUR API ROUTES ---
+app.get('/api/quick/fixtures', async (req, res) => res.json(await QuickFixture.find()));
+app.post('/api/quick/fixtures', async (req, res) => {
+    await new QuickFixture(req.body).save();
+    res.json({ success: true });
+});
+
+app.get('/api/quick/ranks', async (req, res) => res.json(await QuickRank.find()));
+app.post('/api/quick/ranks', async (req, res) => {
+    await QuickRank.findOneAndUpdate({category: req.body.category, playerName: req.body.playerName}, req.body, {upsert: true});
+    res.json({ success: true });
+});
 
 
 const PORT = process.env.PORT || 5000;
