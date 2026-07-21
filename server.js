@@ -256,6 +256,20 @@ app.post('/api/quick/ranks', async (req, res) => {
     await QuickRank.findOneAndUpdate({category: req.body.category, playerName: req.body.playerName}, req.body, {upsert: true});
     res.json({ success: true });
 });
+// --- TEAM MANAGEMENT ROUTE ---
+app.put('/api/teams/assign', async (req, res) => {
+    const { teamName, teamLogo, playerIds } = req.body;
+    try {
+        // Update all selected players with the new team details
+        await Player.updateMany(
+            { _id: { $in: playerIds } },
+            { $set: { teamName: teamName, teamLogo: teamLogo } }
+        );
+        res.json({ success: true, message: "Players assigned to team!" });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 
 
 const PORT = process.env.PORT || 5000;
