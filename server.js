@@ -184,6 +184,55 @@ app.post('/api/auction/ranks', async (req, res) => {
     await TourRank.findOneAndUpdate({category: req.body.category, playerName: req.body.playerName}, req.body, {upsert: true});
     res.json({ success: true });
 });
+// --- SOLO TOUR SCHEMAS ---
+const SoloFixture = mongoose.model('SoloFixture', new mongoose.Schema({
+    type: { type: String, default: "League" },
+    playerA: String, playerB: String,
+    scoreA: { type: Number, default: 0 }, scoreB: { type: Number, default: 0 },
+    status: { type: String, default: "Upcoming" }
+}));
+
+const SoloRank = mongoose.model('SoloRank', new mongoose.Schema({
+    category: String, playerName: String, value: Number
+}));
+
+// --- SOLO TOUR API ROUTES ---
+app.get('/api/solo/fixtures', async (req, res) => res.json(await SoloFixture.find()));
+app.post('/api/solo/fixtures', async (req, res) => {
+    await new SoloFixture(req.body).save();
+    res.json({ success: true });
+});
+
+app.get('/api/solo/ranks', async (req, res) => res.json(await SoloRank.find()));
+app.post('/api/solo/ranks', async (req, res) => {
+    await SoloRank.findOneAndUpdate({category: req.body.category, playerName: req.body.playerName}, req.body, {upsert: true});
+    res.json({ success: true });
+});
+// --- WEEKEND SERIES SCHEMAS ---
+const WeekendFixture = mongoose.model('WeekendFixture', new mongoose.Schema({
+    type: { type: String, default: "League" },
+    playerA: String, playerB: String,
+    scoreA: { type: Number, default: 0 }, scoreB: { type: Number, default: 0 },
+    status: { type: String, default: "Upcoming" }
+}));
+
+const WeekendRank = mongoose.model('WeekendRank', new mongoose.Schema({
+    category: String, playerName: String, value: Number
+}));
+
+// --- WEEKEND SERIES API ROUTES ---
+app.get('/api/weekend/fixtures', async (req, res) => res.json(await WeekendFixture.find()));
+app.post('/api/weekend/fixtures', async (req, res) => {
+    await new WeekendFixture(req.body).save();
+    res.json({ success: true });
+});
+
+app.get('/api/weekend/ranks', async (req, res) => res.json(await WeekendRank.find()));
+app.post('/api/weekend/ranks', async (req, res) => {
+    await WeekendRank.findOneAndUpdate({category: req.body.category, playerName: req.body.playerName}, req.body, {upsert: true});
+    res.json({ success: true });
+});
+
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Admin Server running on ${PORT}`));
