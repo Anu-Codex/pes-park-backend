@@ -150,6 +150,40 @@ app.post('/api/players/:id/matches', async (req, res) => {
     await Player.findByIdAndUpdate(req.params.id, { $push: { matches: { $each: [matchEntry], $position: 0 } } });
     res.json({ success: true });
 });
+// --- AUCTION TOUR SCHEMAS ---
+
+// 1. Fixtures & Knockouts
+const FixtureSchema = new mongoose.Schema({
+    type: { type: String, default: "League" }, // League or Knockout
+    playerA: String,
+    playerB: String,
+    scoreA: { type: Number, default: 0 },
+    scoreB: { type: Number, default: 0 },
+    status: { type: String, default: "Upcoming" } // Upcoming or Completed
+});
+const AuctionFixture = mongoose.model('AuctionFixture', FixtureSchema);
+
+// 2. Tournament Rankings (Golden Boot / Best Players)
+const TourRankSchema = new mongoose.Schema({
+    category: String, // "Golden Boot" or "Best Player"
+    playerName: String,
+    value: Number, // Goals or Rating
+    image: String
+});
+const TourRank = mongoose.model('TourRank', TourRankSchema);
+
+// --- API ROUTES ---
+app.get('/api/auction/fixtures', async (req, res) => res.json(await AuctionFixture.find()));
+app.post('/api/auction/fixtures', async (req, res) => {
+    await new AuctionFixture(req.body).save();
+    res.json({ success: true });
+});
+
+app.get('/api/auction/ranks', async (req, res) => res.json(await TourRank.find()));
+app.post('/api/auction/ranks', async (req, res) => {
+    await TourRank.findOneAndUpdate({category: req.body.category, playerName: req.body.playerName}, req.body, {upsert: true});
+    res.json({ success: true });
+});
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Admin Server running on ${PORT}`));
