@@ -20,6 +20,16 @@ const PlayerSchema = new mongoose.Schema({
     marketValue: { type: Number, default: 0 },
     bdrPoints: { type: Number, default: 0 },
     squadImage: String,
+    // match history 
+    matches: [{
+        opponentId: String, // To help with H2H lookup
+        opponentName: String,
+        myScore: Number,
+        oppScore: Number,
+        result: String, // WIN, LOSS, DRAW
+        date: { type: String, default: () => new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) }
+    }]
+}); 
     // Season Summary
     seasonStats: {
         wins: { type: Number, default: 0 },
@@ -123,6 +133,17 @@ app.post('/api/achievements', async (req, res) => {
 
 app.delete('/api/achievements/:id', async (req, res) => {
     await Achievement.findByIdAndDelete(req.params.id);
+    res.json({ success: true });
+});
+app.post('/api/players/:id/matches', async (req, res) => {
+    const { opponentName, myScore, oppScore } = req.body;
+    let result = "DRAW";
+    if (myScore > oppScore) result = "WIN";
+    else if (myScore < oppScore) result = "LOSS";
+
+    const matchEntry = { opponentName, myScore, oppScore, result };
+    
+    await Player.findByIdAndUpdate(req.params.id, { $push: { matches: { $each: [matchEntry], $position: 0 } } });
     res.json({ success: true });
 });
 
