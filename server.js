@@ -380,6 +380,8 @@ const StandingSchema = new mongoose.Schema({
     wins: { type: Number, default: 0 },
     draws: { type: Number, default: 0 },
     losses: { type: Number, default: 0 },
+    gf: { type: Number, default: 0 }, // Goals For
+    ga: { type: Number, default: 0 }, // Goals Against
     points: { type: Number, default: 0 }
 });
 const Standing = mongoose.model('Standing', StandingSchema);
@@ -543,13 +545,21 @@ app.put('/api/smart/update-score/:id', async (req, res) => {
 
         // 5. UPDATE POINTS TABLE (Standings)
         await Standing.findOneAndUpdate(
-            { tourId: fixture.tourId, participant: fixture.playerA },
-            { $inc: { played: 1, wins: statA.w, draws: statA.d, losses: statA.l, points: statA.pts } }
-        );
-        await Standing.findOneAndUpdate(
-            { tourId: fixture.tourId, participant: fixture.playerB },
-            { $inc: { played: 1, wins: statB.w, draws: statB.d, losses: statB.l, points: statB.pts } }
-        );
+    { tourId: fixture.tourId, participant: fixture.playerA },
+    { $inc: { 
+        played: 1, wins: winA, draws: drawA, losses: lossA, points: ptsA,
+        gf: scoreA, ga: scoreB 
+    }}
+);
+
+// Inside update-score route for Participant B
+await Standing.findOneAndUpdate(
+    { tourId: fixture.tourId, participant: fixture.playerB },
+    { $inc: { 
+        played: 1, wins: winB, draws: drawB, losses: lossB, points: ptsB,
+        gf: scoreB, ga: scoreA 
+    }}
+);
 
         // 6. AUTOMATIC GOLDEN BOOT UPDATE (TourRank)
         // This adds the goals scored in this match to the player's total for this tour type
