@@ -193,13 +193,6 @@ app.post('/api/auction/ranks', async (req, res) => {
     await TourRank.findOneAndUpdate({category: req.body.category, playerName: req.body.playerName}, req.body, {upsert: true});
     res.json({ success: true });
 });
-// --- SOLO TOUR SCHEMAS ---
-const SoloFixture = mongoose.model('SoloFixture', new mongoose.Schema({
-    type: { type: String, default: "League" },
-    playerA: String, playerB: String,
-    scoreA: { type: Number, default: 0 }, scoreB: { type: Number, default: 0 },
-    status: { type: String, default: "Upcoming" }
-}));
 
 const SoloRank = mongoose.model('SoloRank', new mongoose.Schema({
     category: String, playerName: String, value: Number
@@ -217,13 +210,6 @@ app.post('/api/solo/ranks', async (req, res) => {
     await SoloRank.findOneAndUpdate({category: req.body.category, playerName: req.body.playerName}, req.body, {upsert: true});
     res.json({ success: true });
 });
-// --- WEEKEND SERIES SCHEMAS ---
-const WeekendFixture = mongoose.model('WeekendFixture', new mongoose.Schema({
-    type: { type: String, default: "League" },
-    playerA: String, playerB: String,
-    scoreA: { type: Number, default: 0 }, scoreB: { type: Number, default: 0 },
-    status: { type: String, default: "Upcoming" }
-}));
 
 const WeekendRank = mongoose.model('WeekendRank', new mongoose.Schema({
     category: String, playerName: String, value: Number
@@ -241,13 +227,6 @@ app.post('/api/weekend/ranks', async (req, res) => {
     await WeekendRank.findOneAndUpdate({category: req.body.category, playerName: req.body.playerName}, req.body, {upsert: true});
     res.json({ success: true });
 });
-// --- QUICK TOUR SCHEMAS ---
-const QuickFixture = mongoose.model('QuickFixture', new mongoose.Schema({
-    type: { type: String, default: "League" },
-    playerA: String, playerB: String,
-    scoreA: { type: Number, default: 0 }, scoreB: { type: Number, default: 0 },
-    status: { type: String, default: "Upcoming" }
-}));
 
 const QuickRank = mongoose.model('QuickRank', new mongoose.Schema({
     category: String, playerName: String, value: Number
