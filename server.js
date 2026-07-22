@@ -328,6 +328,40 @@ app.post('/api/debug', (req, res) => {
     console.log("--------------------------");
     res.json({ success: true });
 });
+// Replace/Update your Ranking Schema
+const TournamentRankSchema = new mongoose.Schema({
+    tour: String,      // "auction", "solo", "weekend"
+    category: String,  // "boot" (Goals), "best" (Rating)
+    playerName: String,
+    teamName: String,
+    totalValue: { type: Number, default: 0 }, // Rating or Goals
+    matches: { type: Number, default: 0 }
+});
+const TourRank = mongoose.model('TourRank', TournamentRankSchema);
+
+// API to save/update stats
+app.post('/api/tour-ranks', async (req, res) => {
+    const { tour, category, playerName, totalValue, matches } = req.body;
+    // Get team name from player database automatically
+    const player = await Player.findOne({ name: playerName });
+    const teamName = player ? player.teamName : "Free Agent";
+
+    await TourRank.findOneAndUpdate(
+        { tour, category, playerName },
+        { totalValue, matches, teamName },
+        { upsert: true }
+    );
+    res.json({ success: true });
+});
+
+// API to get stats
+app.get('/api/tour-ranks/:tour/:category', async (req, res) => {
+    const data = await TourRank.find({ 
+        tour: req.params.tour, 
+        category: req.params.category 
+    }).sort({ totalValue: -1 });
+    res.json(data);
+});
 
 
 const PORT = process.env.PORT || 5000;
