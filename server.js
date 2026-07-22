@@ -758,6 +758,23 @@ app.get('/api/hof/data/:name', async (req, res) => {
     const data = await HofSeason.findOne({ seasonName: req.params.name });
     res.json(data);
 });
+// --- NEW: FETCH PLAYER PROFILE WITH FULL HISTORY ---
+app.get('/api/players/profile/:id', async (req, res) => {
+    try {
+        const player = await Player.findById(req.params.id);
+        if (!player) return res.status(404).json({ message: "Player not found" });
+
+        // Find all matches where this player was either Player A or Player B
+        const matches = await Fixture.find({
+            $or: [ { playerA: player.name }, { playerB: player.name } ],
+            status: "Completed"
+        }).sort({ createdAt: -1 });
+
+        res.json({ player, matches });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 
 
 const PORT = process.env.PORT || 5000;
