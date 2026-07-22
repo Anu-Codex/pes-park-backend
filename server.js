@@ -514,79 +514,79 @@ app.get('/api/smart/fixtures/:tourId', async (req, res) => {
 app.put('/api/smart/update-score/:id', async (req, res) => {
     try {
         const { scoreA, scoreB } = req.body;
-        
-        // 1. Find the fixture and the tournament type
         const fixture = await Fixture.findById(req.params.id);
-        if (!fixture) return res.status(404).json({ error: "Fixture not found" });
+        if (!fixture || fixture.status === "Completed") return res.status(400).json({ error: "Invalid or already completed" });
 
         const tour = await Tournament.findById(fixture.tourId);
-        const tourType = tour ? tour.type : "auction"; // default to auction if not found
+        const tourType = tour ? tour.type : "auction";
 
-        // 2. Prevent double-counting if match was already completed
-        if (fixture.status === "Completed") {
-            return res.status(400).json({ error: "Score already recorded for this match." });
-        }
-
-        // 3. Update Fixture Status
+        // 1. UPDATE FIXTURE
         fixture.scoreA = scoreA;
         fixture.scoreB = scoreB;
         fixture.status = "Completed";
         await fixture.save();
 
-        // 4. Helper for Points Table (W=3, D=1, L=0)
-        const getStats = (s1, s2) => {
-            if (s1 > s2) return { w: 1, d: 0, l: 0, pts: 3 };
-            if (s1 === s2) return { w: 0, d: 1, l: 0, pts: 1 };
-            return { w: 0, d: 0, l: 1, pts: 0 };
-        };
+        // 2. REWARD CALCULATION FUNCTION
+        const applyRewards = async (pName, myScore, oppScore) => {
+            if (!pName) return;
 
-        const statA = getStats(scoreA, scoreB);
-        const statB = getStats(scoreB, scoreA);
+            let bdrAdd = 0;
+            let mvAdd = 0;
+            let bpAdd = 0;
 
-        // 5. UPDATE POINTS TABLE (Standings)
-        await Standing.findOneAndUpdate(
-    { tourId: fixture.tourId, participant: fixture.playerA },
-    { $inc: { 
-        played: 1, wins: winA, draws: drawA, losses: lossA, points: ptsA,
-        gf: scoreA, ga: scoreB 
-    }}
-);
+            // Rule: Win / Loss / Draw
+            if (myScore > oppScore) { // WIN
+                bdrAdd = 5; mvAdd = 15; bpAdd = 3;
+            } else if (myScore === oppScore) { // DRAW
+                bdrAdd = 1; mvAdd = 0; bpAdd = 1;
+            } else { // LOSS
+                bdrAdd = -3; mvAdd = -10; bpAdd = 0;
+            }
 
-// Inside update-score route for Participant B
-await Standing.findOneAndUpdate(
-    { tourId: fixture.tourId, participant: fixture.playerB },
-    { $inc: { 
-        played: 1, wins: winB, draws: drawB, losses: lossB, points: ptsB,
-        gf: scoreB, ga: scoreA 
-    }}
-);
+            // Rule: Goals Scored
+            bdrAdd += (myScore * 1);
+            mvAdd += (myScore * 3);
 
-        // 6. AUTOMATIC GOLDEN BOOT UPDATE (TourRank)
-        // This adds the goals scored in this match to the player's total for this tour type
-        const updateGoals = async (pName, goals) => {
-            if (goals <= 0) return;
-            
-            // Get player's team info to keep the ranking table looking good
-            const pData = await Player.findOne({ name: pName });
-            const team = pData ? pData.teamName : "Free Agent";
+            // A. Update Player Global Stats (BDR & Market Value)
+            await Player.findOneAndUpdate(
+                { name: pName },
+                { $inc: { bdrPoints: bdrAdd, marketValue: mvAdd } }
+            );
 
+            // B. Update Tournament Ranking (Best Player / Rating)
+            await TourRank.findOneAndUpdate(
+                { tour: tourType, category: "best", playerName: pName },
+                { $inc: { totalValue: bpAdd } },
+                { upsert: true }
+            );
+
+            // C. Update Tournament Ranking (Golden Boot / Goals)
             await TourRank.findOneAndUpdate(
                 { tour: tourType, category: "boot", playerName: pName },
-                { 
-                    $inc: { totalValue: goals }, // Increment total goals
-                    $set: { teamName: team }      // Ensure team name is up to date
-                },
-                { upsert: true } // Create record if it doesn't exist yet
+                { $inc: { totalValue: myScore } },
+                { upsert: true }
+            );
+
+            // D. Update Points Table (Standings)
+            const pts = (myScore > oppScore) ? 3 : (myScore === oppScore ? 1 : 0);
+            await Standing.findOneAndUpdate(
+                { tourId: fixture.tourId, participant: pName },
+                { $inc: { 
+                    played: 1, 
+                    wins: myScore > oppScore ? 1 : 0, 
+                    draws: myScore === oppScore ? 1 : 0, 
+                    losses: myScore < oppScore ? 1 : 0, 
+                    gf: myScore, ga: oppScore, points: pts 
+                }}
             );
         };
 
-        await updateGoals(fixture.playerA, scoreA);
-        await updateGoals(fixture.playerB, scoreB);
+        // Apply to both players
+        await applyRewards(fixture.playerA, scoreA, scoreB);
+        await applyRewards(fixture.playerB, scoreB, scoreA);
 
-        res.json({ success: true, message: "Scores, Points, and Golden Boot updated!" });
-
+        res.json({ success: true });
     } catch (err) {
-        console.error(err);
         res.status(500).json({ error: err.message });
     }
 });
@@ -665,6 +665,46 @@ app.get('/api/smart/recalculate-table/:tourId', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+app.get('/api/smart/sync-all-rewards', async (req, res) => {
+    try {
+        // 1. Reset everyone to baseline before recalculating
+        await Player.updateMany({}, { $set: { bdrPoints: 0, marketValue: 0 } });
+        await TourRank.deleteMany({});
+        await Standing.updateMany({}, { $set: { played: 0, wins: 0, draws: 0, losses: 0, gf: 0, ga: 0, points: 0 } });
+
+        const matches = await Fixture.find({ status: "Completed" });
+
+        for (let m of matches) {
+            const tour = await Tournament.findById(m.tourId);
+            const tType = tour ? tour.type : "auction";
+
+            const calc = (pName, s1, s2) => {
+                let b = (s1 > s2 ? 5 : (s1 === s2 ? 1 : -3)) + (s1 * 1);
+                let v = (s1 > s2 ? 15 : (s1 === s2 ? 0 : -10)) + (s1 * 3);
+                let r = (s1 > s2 ? 3 : (s1 === s2 ? 1 : 0));
+                let p = (s1 > s2 ? 3 : (s1 === s2 ? 1 : 0));
+                return { b, v, r, p };
+            };
+
+            const resA = calc(m.playerA, m.scoreA, m.scoreB);
+            const resB = calc(m.playerB, m.scoreB, m.scoreA);
+
+            // Update DB for Player A
+            await Player.findOneAndUpdate({ name: m.playerA }, { $inc: { bdrPoints: resA.b); marketValue: resA.v } });
+            await TourRank.findOneAndUpdate({ tour: tType, category: "best", playerName: m.playerA }, { $inc: { totalValue: resA.r } }, { upsert: true });
+            await TourRank.findOneAndUpdate({ tour: tType, category: "boot", playerName: m.playerA }, { $inc: { totalValue: m.scoreA } }, { upsert: true });
+            await Standing.findOneAndUpdate({ tourId: m.tourId, participant: m.playerA }, { $inc: { played: 1, wins: m.scoreA > m.scoreB ? 1 : 0, draws: m.scoreA === m.scoreB ? 1 : 0, losses: m.scoreA < m.scoreB ? 1 : 0, gf: m.scoreA, ga: m.scoreB, points: resA.p } });
+
+            // Update DB for Player B
+            await Player.findOneAndUpdate({ name: m.playerB }, { $inc: { bdrPoints: resB.b, marketValue: resB.v } });
+            await TourRank.findOneAndUpdate({ tour: tType, category: "best", playerName: m.playerB }, { $inc: { totalValue: resB.r } }, { upsert: true });
+            await TourRank.findOneAndUpdate({ tour: tType, category: "boot", playerName: m.playerB }, { $inc: { totalValue: m.scoreB } }, { upsert: true });
+            await Standing.findOneAndUpdate({ tourId: m.tourId, participant: m.playerB }, { $inc: { played: 1, wins: m.scoreB > m.scoreA ? 1 : 0, draws: m.scoreA === m.scoreB ? 1 : 0, losses: m.scoreB < m.scoreA ? 1 : 0, gf: m.scoreB, ga: m.scoreA, points: resB.p } });
+        }
+        res.json({ success: true, message: "All rewards recalculated from history!" });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 
 
 
