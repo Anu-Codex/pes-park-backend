@@ -480,6 +480,51 @@ app.get('/api/smart/fixtures/:tourId', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+app.post('/api/smart/create-fixture', async (req, res) => {
+    try {
+        const fixture = await Fixture.create(req.body);
+        res.json({ success: true, fixture });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.put('/api/smart/update-score/:id', async (req, res) => {
+    try {
+        const { scoreA, scoreB } = req.body;
+        const fixture = await Fixture.findById(req.params.id);
+
+        if (fixture.status === "Completed") return res.status(400).json({ message: "Match already recorded" });
+
+        // Update match result
+        fixture.scoreA = scoreA;
+        fixture.scoreB = scoreB;
+        fixture.status = "Completed";
+        await fixture.save();
+
+        // Points Logic Helper
+        const getStats = (myS, oppS) => {
+            if (myS > oppS) return { w: 1, d: 0, l: 0, pts: 3 };
+            if (myS === oppS) return { w: 0, d: 1, l: 0, pts: 1 };
+            return { w: 0, d: 0, l: 1, pts: 0 };
+        };
+
+        const statA = getStats(scoreA, scoreB);
+        const statB = getStats(scoreB, scoreA);
+
+        // Update Participant A Table Row
+        await Standing.findOneAndUpdate(
+            { tourId: fixture.tourId, participant: fixture.playerA },
+            { $inc: { played: 1, wins: statA.w, draws: statA.d, losses: statA.l, points: statA.pts } }
+        );
+
+        // Update Participant B Table Row
+        await Standing.findOneAndUpdate(
+            { tourId: fixture.tourId, participant: fixture.playerB },
+            { $inc: { played: 1, wins: statB.w, draws: statB.d, losses: statB.l, points: statB.pts } }
+        );
+
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 
 
 const PORT = process.env.PORT || 5000;
