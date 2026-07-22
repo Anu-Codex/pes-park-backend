@@ -512,40 +512,73 @@ app.get('/api/smart/fixtures/:tourId', async (req, res) => {
 app.put('/api/smart/update-score/:id', async (req, res) => {
     try {
         const { scoreA, scoreB } = req.body;
+        
+        // 1. Find the fixture and the tournament type
         const fixture = await Fixture.findById(req.params.id);
+        if (!fixture) return res.status(404).json({ error: "Fixture not found" });
 
-        if (fixture.status === "Completed") return res.status(400).json({ message: "Match already recorded" });
+        const tour = await Tournament.findById(fixture.tourId);
+        const tourType = tour ? tour.type : "auction"; // default to auction if not found
 
-        // Update match result
+        // 2. Prevent double-counting if match was already completed
+        if (fixture.status === "Completed") {
+            return res.status(400).json({ error: "Score already recorded for this match." });
+        }
+
+        // 3. Update Fixture Status
         fixture.scoreA = scoreA;
         fixture.scoreB = scoreB;
         fixture.status = "Completed";
         await fixture.save();
 
-        // Points Logic Helper
-        const getStats = (myS, oppS) => {
-            if (myS > oppS) return { w: 1, d: 0, l: 0, pts: 3 };
-            if (myS === oppS) return { w: 0, d: 1, l: 0, pts: 1 };
+        // 4. Helper for Points Table (W=3, D=1, L=0)
+        const getStats = (s1, s2) => {
+            if (s1 > s2) return { w: 1, d: 0, l: 0, pts: 3 };
+            if (s1 === s2) return { w: 0, d: 1, l: 0, pts: 1 };
             return { w: 0, d: 0, l: 1, pts: 0 };
         };
 
         const statA = getStats(scoreA, scoreB);
         const statB = getStats(scoreB, scoreA);
 
-        // Update Participant A Table Row
+        // 5. UPDATE POINTS TABLE (Standings)
         await Standing.findOneAndUpdate(
             { tourId: fixture.tourId, participant: fixture.playerA },
             { $inc: { played: 1, wins: statA.w, draws: statA.d, losses: statA.l, points: statA.pts } }
         );
-
-        // Update Participant B Table Row
         await Standing.findOneAndUpdate(
             { tourId: fixture.tourId, participant: fixture.playerB },
             { $inc: { played: 1, wins: statB.w, draws: statB.d, losses: statB.l, points: statB.pts } }
         );
 
-        res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+        // 6. AUTOMATIC GOLDEN BOOT UPDATE (TourRank)
+        // This adds the goals scored in this match to the player's total for this tour type
+        const updateGoals = async (pName, goals) => {
+            if (goals <= 0) return;
+            
+            // Get player's team info to keep the ranking table looking good
+            const pData = await Player.findOne({ name: pName });
+            const team = pData ? pData.teamName : "Free Agent";
+
+            await TourRank.findOneAndUpdate(
+                { tour: tourType, category: "boot", playerName: pName },
+                { 
+                    $inc: { totalValue: goals }, // Increment total goals
+                    $set: { teamName: team }      // Ensure team name is up to date
+                },
+                { upsert: true } // Create record if it doesn't exist yet
+            );
+        };
+
+        await updateGoals(fixture.playerA, scoreA);
+        await updateGoals(fixture.playerB, scoreB);
+
+        res.json({ success: true, message: "Scores, Points, and Golden Boot updated!" });
+
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: err.message });
+    }
 });
 
 
