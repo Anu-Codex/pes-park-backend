@@ -626,6 +626,45 @@ app.get('/api/smart/sync-all-goals', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+app.get('/api/smart/recalculate-table/:tourId', async (req, res) => {
+    try {
+        const { tourId } = req.params;
+
+        // 1. Reset all standings for this tour to 0
+        await Standing.updateMany({ tourId }, { 
+            played: 0, wins: 0, draws: 0, losses: 0, gf: 0, ga: 0, points: 0 
+        });
+
+        // 2. Get all COMPLETED matches for this tour
+        const matches = await Fixture.find({ tourId, status: "Completed" });
+
+        for (let m of matches) {
+            const getStats = (s1, s2) => {
+                if (s1 > s2) return { w: 1, d: 0, l: 0, pts: 3 };
+                if (s1 === s2) return { w: 0, d: 1, l: 0, pts: 1 };
+                return { w: 0, d: 0, l: 1, pts: 0 };
+            };
+
+            const resA = getStats(m.scoreA, m.scoreB);
+            const resB = getStats(m.scoreB, m.scoreA);
+
+            // Update Player A
+            await Standing.findOneAndUpdate(
+                { tourId, participant: m.playerA },
+                { $inc: { played: 1, wins: resA.w, draws: resA.d, losses: resA.l, gf: m.scoreA, ga: m.scoreB, points: resA.pts } }
+            );
+            // Update Player B
+            await Standing.findOneAndUpdate(
+                { tourId, participant: m.playerB },
+                { $inc: { played: 1, wins: resB.w, draws: resB.d, losses: resB.l, gf: m.scoreB, ga: m.scoreA, points: resB.pts } }
+            );
+        }
+
+        res.json({ success: true, message: "Points table updated from match history!" });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 
 
 
