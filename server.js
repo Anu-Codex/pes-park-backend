@@ -472,12 +472,22 @@ app.put('/api/smart/register-player', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+// Check this route in your server.js
 app.get('/api/smart/fixtures/:tourId', async (req, res) => {
     try {
-        const fixtures = await Fixture.find({ tourId: req.params.tourId }).sort({ createdAt: -1 });
-        res.json(fixtures);
+        const { tourId } = req.params;
+        
+        // Safety check: if tourId is "null" or empty string
+        if (!tourId || tourId === "null" || tourId === "undefined") {
+            return res.json([]); 
+        }
+
+        // Fetch fixtures linked to this specific tournament ID
+        const matches = await Fixture.find({ tourId: tourId }).sort({ createdAt: -1 });
+        res.json(matches);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error("Fixture Fetch Error:", err);
+        res.status(500).json({ error: "Internal Server Error" });
     }
 });
 app.post('/api/smart/create-fixture', async (req, res) => {
