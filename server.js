@@ -356,6 +356,36 @@ app.get('/api/tour-ranks/:tour/:category', async (req, res) => {
     }).sort({ totalValue: -1 });
     res.json(data);
 });
+// --- DANGER ZONE ROUTES ---
+
+// 1. Reset All Tour Fixtures & Scores
+app.delete('/api/danger/reset-tours', async (req, res) => {
+    try {
+        await AuctionFixture.deleteMany({});
+        await SoloFixture.deleteMany({});
+        await WeekendFixture.deleteMany({});
+        await QuickFixture.deleteMany({});
+        res.json({ success: true, message: "All fixtures and scores wiped." });
+    } catch (err) { res.status(500).send(err); }
+});
+
+// 2. Reset All Rankings (Golden Boot / Best Player)
+app.delete('/api/danger/reset-ranks', async (req, res) => {
+    try {
+        await TourRank.deleteMany({});
+        res.json({ success: true, message: "Rankings and Golden Boot data wiped." });
+    } catch (err) { res.status(500).send(err); }
+});
+
+// 3. Reset Player Financials (Market Value, Auction Price, BDR)
+app.put('/api/danger/reset-player-stats', async (req, res) => {
+    try {
+        await Player.updateMany({}, { 
+            $set: { marketValue: 0, auctionPrice: 0, bdrPoints: 0, matches: [] } 
+        });
+        res.json({ success: true, message: "Player values and match history reset to 0." });
+    } catch (err) { res.status(500).send(err); }
+});
 
 
 const PORT = process.env.PORT || 5000;
