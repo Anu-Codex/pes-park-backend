@@ -472,6 +472,14 @@ app.put('/api/smart/register-player', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+app.get('/api/smart/fixtures/:tourId', async (req, res) => {
+    try {
+        const fixtures = await Fixture.find({ tourId: req.params.tourId }).sort({ createdAt: -1 });
+        res.json(fixtures);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 
 
 const PORT = process.env.PORT || 5000;
