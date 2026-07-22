@@ -727,6 +727,34 @@ app.get('/api/smart/sync-all-rewards', async (req, res) => {
         res.json({ success: true, message: "All rewards recalculated from history!" });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
+const HofSeasonSchema = new mongoose.Schema({
+    seasonName: { type: String, required: true, unique: true }, // e.g., "Season 6 • 2026"
+    specialHighlights: [{ label: String, value: String }], // Top yellow area
+    trophyWinners: [{ 
+        title: String, 
+        winner: String, 
+        squad: String, 
+        iconType: String // e.g., "ballon", "league", "ucl", "weekly"
+    }] 
+});
+
+const HofSeason = mongoose.model('HofSeason', HofSeasonSchema);
+
+// API Routes
+app.get('/api/hof/seasons', async (req, res) => {
+    const seasons = await HofSeason.find({}, 'seasonName');
+    res.json(seasons);
+});
+
+app.get('/api/hof/data/:name', async (req, res) => {
+    const data = await HofSeason.findOne({ seasonName: req.params.name });
+    res.json(data);
+});
+
+app.post('/api/hof/save', async (req, res) => {
+    await HofSeason.findOneAndUpdate({ seasonName: req.body.seasonName }, req.body, { upsert: true });
+    res.json({ success: true });
+});
 
 
 
