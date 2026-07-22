@@ -665,9 +665,9 @@ app.get('/api/smart/recalculate-table/:tourId', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+// --- FIXED SYNC ALL REWARDS ROUTE ---
 app.get('/api/smart/sync-all-rewards', async (req, res) => {
     try {
-        // 1. Reset everyone to baseline before recalculating
         await Player.updateMany({}, { $set: { bdrPoints: 0, marketValue: 0 } });
         await TourRank.deleteMany({});
         await Standing.updateMany({}, { $set: { played: 0, wins: 0, draws: 0, losses: 0, gf: 0, ga: 0, points: 0 } });
@@ -689,14 +689,16 @@ app.get('/api/smart/sync-all-rewards', async (req, res) => {
             const resA = calc(m.playerA, m.scoreA, m.scoreB);
             const resB = calc(m.playerB, m.scoreB, m.scoreA);
 
-            // Update DB for Player A
-            await Player.findOneAndUpdate({ name: m.playerA }, { $inc: { bdrPoints: resA.b); marketValue: resA.v } });
+            // FIX: Removed the extra ");" after resA.b
+            await Player.findOneAndUpdate({ name: m.playerA }, { $inc: { bdrPoints: resA.b, marketValue: resA.v } });
+            
             await TourRank.findOneAndUpdate({ tour: tType, category: "best", playerName: m.playerA }, { $inc: { totalValue: resA.r } }, { upsert: true });
             await TourRank.findOneAndUpdate({ tour: tType, category: "boot", playerName: m.playerA }, { $inc: { totalValue: m.scoreA } }, { upsert: true });
             await Standing.findOneAndUpdate({ tourId: m.tourId, participant: m.playerA }, { $inc: { played: 1, wins: m.scoreA > m.scoreB ? 1 : 0, draws: m.scoreA === m.scoreB ? 1 : 0, losses: m.scoreA < m.scoreB ? 1 : 0, gf: m.scoreA, ga: m.scoreB, points: resA.p } });
 
             // Update DB for Player B
             await Player.findOneAndUpdate({ name: m.playerB }, { $inc: { bdrPoints: resB.b, marketValue: resB.v } });
+            
             await TourRank.findOneAndUpdate({ tour: tType, category: "best", playerName: m.playerB }, { $inc: { totalValue: resB.r } }, { upsert: true });
             await TourRank.findOneAndUpdate({ tour: tType, category: "boot", playerName: m.playerB }, { $inc: { totalValue: m.scoreB } }, { upsert: true });
             await Standing.findOneAndUpdate({ tourId: m.tourId, participant: m.playerB }, { $inc: { played: 1, wins: m.scoreB > m.scoreA ? 1 : 0, draws: m.scoreA === m.scoreB ? 1 : 0, losses: m.scoreB < m.scoreA ? 1 : 0, gf: m.scoreB, ga: m.scoreA, points: resB.p } });
@@ -704,7 +706,6 @@ app.get('/api/smart/sync-all-rewards', async (req, res) => {
         res.json({ success: true, message: "All rewards recalculated from history!" });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
-
 
 
 
