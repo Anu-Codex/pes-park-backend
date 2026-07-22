@@ -153,17 +153,23 @@ app.post('/api/players/:id/matches', async (req, res) => {
 });
 // --- AUCTION TOUR SCHEMAS ---
 
-// 1. Fixtures & Knockouts
+// 1. Define the Schema
 const FixtureSchema = new mongoose.Schema({
-    tourId: { type: mongoose.Schema.Types.ObjectId, ref: 'Tournament' },
-    tourName: String,
+    type: { type: String, default: "League" }, // League or Knockout
     playerA: String,
     playerB: String,
     scoreA: { type: Number, default: 0 },
     scoreB: { type: Number, default: 0 },
-    status: { type: String, default: "Upcoming" } // Upcoming, Completed
+    status: { type: String, default: "Upcoming" } // Upcoming or Completed
 });
-const Fixture = mongoose.model('Fixture', FixtureSchema);
+
+// 2. Create the Model (This fixes the 'not defined' error)
+const AuctionFixture = mongoose.model('AuctionFixture', FixtureSchema);
+
+// --- ADD THESE TOO IF YOU USE SOLO/QUICK/WEEKEND TOURS ---
+const SoloFixture = mongoose.model('SoloFixture', FixtureSchema);
+const QuickFixture = mongoose.model('QuickFixture', FixtureSchema);
+const WeekendFixture = mongoose.model('WeekendFixture', FixtureSchema);
 // 2. Tournament Rankings (Golden Boot / Best Players)
 const TournamentRankSchema = new mongoose.Schema({
     tour: String,      // "auction", "solo", "weekend"
