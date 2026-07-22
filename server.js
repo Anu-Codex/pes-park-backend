@@ -280,6 +280,42 @@ app.put('/api/players/:id/captain', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+// 1. Team Schema
+const TeamSchema = new mongoose.Schema({
+    name: String,
+    logo: String,
+    wins: { type: Number, default: 0 },
+    draws: { type: Number, default: 0 },
+    losses: { type: Number, default: 0 }
+});
+const Team = mongoose.model('Team', TeamSchema);
+
+// 2. Route to get League Leader
+app.get('/api/teams/leader', async (req, res) => {
+    try {
+        const teams = await Team.find();
+        if (teams.length === 0) return res.json({ name: "None", points: 0 });
+
+        // Calculate points for each team based on your rules
+        const rankedTeams = teams.map(t => {
+            const points = (t.wins * 3) + (t.draws * 1) + (t.losses * -2);
+            return { name: t.name, points: points };
+        });
+
+        // Sort to find the top one
+        rankedTeams.sort((a, b) => b.points - a.points);
+        res.json(rankedTeams[0]);
+    } catch (err) {
+        res.status(500).send(err);
+    }
+});
+
+// 3. Route to update team results (Used by Dashboard)
+app.put('/api/teams/update-stats', async (req, res) => {
+    const { name, wins, draws, losses } = req.body;
+    await Team.findOneAndUpdate({ name }, { wins, draws, losses }, { upsert: true });
+    res.json({ success: true });
+});
 
 
 const PORT = process.env.PORT || 5000;
