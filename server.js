@@ -450,6 +450,28 @@ app.get('/api/smart/standings/:tourId', async (req, res) => {
         res.json(data);
     } catch (err) { res.status(500).json(err); }
 });
+// Register a player from the global DB into a specific tournament
+app.put('/api/smart/register-player', async (req, res) => {
+    const { tourId, playerName } = req.body;
+    try {
+        // 1. Add player to the Tournament participants array
+        const tour = await Tournament.findByIdAndUpdate(
+            tourId,
+            { $addToSet: { participants: playerName } }, // $addToSet prevents duplicates
+            { new: true }
+        );
+
+        // 2. Create an entry in the Standing (Points Table) for this player in this tour
+        const existingStanding = await Standing.findOne({ tourId, participant: playerName });
+        if (!existingStanding) {
+            await Standing.create({ tourId, participant: playerName });
+        }
+
+        res.json({ success: true, message: `${playerName} registered to ${tour.name}` });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 
 
 const PORT = process.env.PORT || 5000;
