@@ -92,11 +92,32 @@ app.delete('/api/players/:id', async (req, res) => {
     res.json({ success: true });
 });
 
-// Stats API
+// --- DYNAMIC GLOBAL STATS ROUTE ---
 app.get('/api/stats', async (req, res) => {
-    let stats = await Stats.findOne();
-    if (!stats) stats = await Stats.create({ bdrLeader: "None", bdrValue: 0, highestMV: "None", mvValue: 0, teamsCount: 0, playersCount: 0 });
-    res.json(stats);
+    try {
+        // 1. Find player with highest BDR Points
+        const topBDR = await Player.findOne().sort({ bdrPoints: -1 });
+
+        // 2. Find player with highest Market Value
+        const topMV = await Player.findOne().sort({ marketValue: -1 });
+
+        // 3. Count total number of teams registered
+        const teamTotal = await Team.countDocuments();
+
+        // 4. Count total players
+        const playerTotal = await Player.countDocuments();
+
+        res.json({
+            bdrValue: topBDR ? topBDR.bdrPoints : 0,
+            bdrName: topBDR ? topBDR.name : "None",
+            mvValue: topMV ? topMV.marketValue : 0,
+            mvName: topMV ? topMV.name : "None",
+            teamsCount: teamTotal,
+            playersCount: playerTotal
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 app.put('/api/stats', async (req, res) => {
