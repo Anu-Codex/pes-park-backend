@@ -316,6 +316,11 @@ app.put('/api/teams/update-stats', async (req, res) => {
     await Team.findOneAndUpdate({ name }, { wins, draws, losses }, { upsert: true });
     res.json({ success: true });
 });
+app.get('/api/teams/all', async (req, res) => {
+    // This finds all unique team names from your Team schema
+    const teams = await Team.find({}, 'name'); 
+    res.json(teams);
+});
 
 
 const PORT = process.env.PORT || 5000;
