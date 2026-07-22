@@ -733,7 +733,7 @@ app.get('/api/smart/sync-all-rewards', async (req, res) => {
 const HofSeasonSchema = new mongoose.Schema({
     seasonName: String,
     specialHighlights: [{ label: String, value: String }],
-    trophyWinners: [{ title: String, winner: String }]
+    trophyWinners: [{ title: String, winner: String, runner: String }]
 });
 const HofSeason = mongoose.model('HofSeason', HofSeasonSchema);
 
