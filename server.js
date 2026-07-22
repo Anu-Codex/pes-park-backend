@@ -166,12 +166,12 @@ const fixtureSchema = new mongoose.Schema({
 
 // This line creates the "Fixture" variable that the error is complaining about
 const Fixture = mongoose.models.Fixture || mongoose.model('Fixture', fixtureSchema);
-const AuctionFixture = mongoose.model('AuctionFixture', FixtureSchema);
+const AuctionFixture = mongoose.model('AuctionFixture', fixtureSchema);
 
 // --- ADD THESE TOO IF YOU USE SOLO/QUICK/WEEKEND TOURS ---
-const SoloFixture = mongoose.model('SoloFixture', FixtureSchema);
-const QuickFixture = mongoose.model('QuickFixture', FixtureSchema);
-const WeekendFixture = mongoose.model('WeekendFixture', FixtureSchema);
+const SoloFixture = mongoose.model('SoloFixture', fixtureSchema);
+const QuickFixture = mongoose.model('QuickFixture', fixtureSchema);
+const WeekendFixture = mongoose.model('WeekendFixture', fixtureSchema);
 // 2. Tournament Rankings (Golden Boot / Best Players)
 const TournamentRankSchema = new mongoose.Schema({
     tour: String,      // "auction", "solo", "weekend"
