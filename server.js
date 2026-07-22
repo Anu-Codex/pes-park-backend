@@ -127,8 +127,8 @@ app.put('/api/stats', async (req, res) => {
 
 // Add these to your existing server.js
 
-const ADMIN_EMAIL = "admin@tamil.com";
-const ADMIN_PASS = "admin123"; // You should use environment variables for this!
+const ADMIN_EMAIL = "admin@pes-park.com";
+const ADMIN_PASS = "admin@pes-park123"; // You should use environment variables for this!
 
 app.post('/api/login', (req, res) => {
     const { email, password } = req.body;
