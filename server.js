@@ -473,28 +473,39 @@ app.put('/api/smart/register-player', async (req, res) => {
     }
 });
 // Check this route in your server.js
+// 1. Route to CREATE a fixture (Used by Dashboard)
+app.post('/api/smart/create-fixture', async (req, res) => {
+    try {
+        const { tourId, playerA, playerB } = req.body;
+        if(!tourId || !playerA || !playerB) return res.status(400).json({message: "Missing data"});
+
+        const newFixture = new Fixture({
+            tourId,
+            playerA,
+            playerB,
+            status: "Upcoming"
+        });
+
+        await newFixture.save();
+        res.json({ success: true, message: "Fixture Created!" });
+    } catch (err) {
+        console.error("Create Fixture Error:", err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 2. Route to FETCH fixtures (Used by Index.html)
 app.get('/api/smart/fixtures/:tourId', async (req, res) => {
     try {
         const { tourId } = req.params;
-        
-        // Safety check: if tourId is "null" or empty string
-        if (!tourId || tourId === "null" || tourId === "undefined") {
-            return res.json([]); 
-        }
+        // If tourId is just a placeholder string, return empty array instead of error
+        if (tourId.length < 20) return res.json([]); 
 
-        // Fetch fixtures linked to this specific tournament ID
         const matches = await Fixture.find({ tourId: tourId }).sort({ createdAt: -1 });
         res.json(matches);
     } catch (err) {
-        console.error("Fixture Fetch Error:", err);
-        res.status(500).json({ error: "Internal Server Error" });
+        res.status(500).json({ error: "DB Error" });
     }
-});
-app.post('/api/smart/create-fixture', async (req, res) => {
-    try {
-        const fixture = await Fixture.create(req.body);
-        res.json({ success: true, fixture });
-    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 app.put('/api/smart/update-score/:id', async (req, res) => {
     try {
