@@ -182,6 +182,7 @@ const fixtureSchema = new mongoose.Schema({
     scoreA: { type: Number, default: 0 },
     scoreB: { type: Number, default: 0 },
     status: { type: String, default: "Upcoming" },
+    stage: String,
     createdAt: { type: Date, default: Date.now }
 });
 
