@@ -153,17 +153,19 @@ app.post('/api/players/:id/matches', async (req, res) => {
 });
 // --- AUCTION TOUR SCHEMAS ---
 
-// 1. Define the Schema
-const FixtureSchema = new mongoose.Schema({
-    type: { type: String, default: "League" }, // League or Knockout
+// --- SMART FIXTURE MODEL ---
+const fixtureSchema = new mongoose.Schema({
+    tourId: { type: mongoose.Schema.Types.ObjectId, ref: 'Tournament' },
     playerA: String,
     playerB: String,
     scoreA: { type: Number, default: 0 },
     scoreB: { type: Number, default: 0 },
-    status: { type: String, default: "Upcoming" } // Upcoming or Completed
+    status: { type: String, default: "Upcoming" },
+    createdAt: { type: Date, default: Date.now }
 });
 
-// 2. Create the Model (This fixes the 'not defined' error)
+// This line creates the "Fixture" variable that the error is complaining about
+const Fixture = mongoose.models.Fixture || mongoose.model('Fixture', fixtureSchema);
 const AuctionFixture = mongoose.model('AuctionFixture', FixtureSchema);
 
 // --- ADD THESE TOO IF YOU USE SOLO/QUICK/WEEKEND TOURS ---
