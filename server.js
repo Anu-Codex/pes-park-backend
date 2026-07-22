@@ -580,6 +580,42 @@ app.put('/api/smart/update-score/:id', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+// --- SYNC GOLDEN BOOT WITH ENTIRE MATCH HISTORY ---
+app.get('/api/smart/sync-all-goals', async (req, res) => {
+    try {
+        // 1. Reset all Golden Boot records to 0 first
+        await TourRank.deleteMany({ category: "boot" });
+
+        // 2. Get all matches that have scores
+        const completedMatches = await Fixture.find({ status: "Completed" });
+
+        for (const match of completedMatches) {
+            // Get the tour type (auction/solo/etc)
+            const tour = await Tournament.findById(match.tourId);
+            const type = tour ? tour.type : "auction";
+
+            const updateGoals = async (pName, goals) => {
+                if (!pName || goals <= 0) return;
+                const pData = await Player.findOne({ name: pName });
+                await TourRank.findOneAndUpdate(
+                    { tour: type, category: "boot", playerName: pName },
+                    { 
+                        $inc: { totalValue: goals },
+                        $set: { teamName: pData ? pData.teamName : "Free Agent" }
+                    },
+                    { upsert: true }
+                );
+            };
+
+            await updateGoals(match.playerA, match.scoreA);
+            await updateGoals(match.playerB, match.scoreB);
+        }
+
+        res.json({ success: true, message: "Golden Boot synced with history!" });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 
 
 
