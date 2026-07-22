@@ -155,15 +155,15 @@ app.post('/api/players/:id/matches', async (req, res) => {
 
 // 1. Fixtures & Knockouts
 const FixtureSchema = new mongoose.Schema({
-    type: { type: String, default: "League" }, // League or Knockout
+    tourId: { type: mongoose.Schema.Types.ObjectId, ref: 'Tournament' },
+    tourName: String,
     playerA: String,
     playerB: String,
     scoreA: { type: Number, default: 0 },
     scoreB: { type: Number, default: 0 },
-    status: { type: String, default: "Upcoming" } // Upcoming or Completed
+    status: { type: String, default: "Upcoming" } // Upcoming, Completed
 });
-const AuctionFixture = mongoose.model('AuctionFixture', FixtureSchema);
-
+const Fixture = mongoose.model('Fixture', FixtureSchema);
 // 2. Tournament Rankings (Golden Boot / Best Players)
 const TournamentRankSchema = new mongoose.Schema({
     tour: String,      // "auction", "solo", "weekend"
@@ -385,6 +385,55 @@ app.put('/api/danger/reset-player-stats', async (req, res) => {
         });
         res.json({ success: true, message: "Player values and match history reset to 0." });
     } catch (err) { res.status(500).send(err); }
+});
+const StandingSchema = new mongoose.Schema({
+    tourId: { type: mongoose.Schema.Types.ObjectId, ref: 'Tournament' },
+    participant: String,
+    played: { type: Number, default: 0 },
+    wins: { type: Number, default: 0 },
+    draws: { type: Number, default: 0 },
+    losses: { type: Number, default: 0 },
+    points: { type: Number, default: 0 }
+});
+const Standing = mongoose.model('Standing', StandingSchema);
+const TournamentSchema = new mongoose.Schema({
+    type: String, // solo, auction, quick, weekend
+    name: String, // e.g., "Pro League Season 1"
+    participants: [String], // Array of player or team names
+    createdAt: { type: Date, default: Date.now }
+});
+const Tournament = mongoose.model('Tournament', TournamentSchema);
+app.post('/api/smart/create-tour', async (req, res) => {
+    const { type, name, participants } = req.body;
+    const tour = await Tournament.create({ type, name, participants });
+    
+    // Auto-create point table entries for all participants
+    const standingEntries = participants.map(p => ({ tourId: tour._id, participant: p }));
+    await Standing.insertMany(standingEntries);
+    
+    res.json({ success: true, tour });
+});
+
+// Update Result & Auto-Calculate Points
+app.put('/api/smart/update-score/:fixtureId', async (req, res) => {
+    const { scoreA, scoreB } = req.body;
+    const fixture = await Fixture.findByIdAndUpdate(req.params.fixtureId, { scoreA, scoreB, status: "Completed" });
+
+    // Points Logic: W=3, D=1, L=0
+    const updateStats = async (name, goalsFor, goalsAgainst) => {
+        let win = 0, draw = 0, loss = 0, pts = 0;
+        if (goalsFor > goalsAgainst) { win = 1; pts = 3; }
+        else if (goalsFor === goalsAgainst) { draw = 1; pts = 1; }
+        else { loss = 1; pts = 0; }
+
+        await Standing.findOneAndUpdate(
+            { tourId: fixture.tourId, participant: name },
+            { $inc: { played: 1, wins: win, draws: draw, losses: loss, points: pts } }
+        );
+    };
+    await updateStats(fixture.playerA, scoreA, scoreB);
+    await updateStats(fixture.playerB, scoreB, scoreA);
+    res.json({ success: true });
 });
 
 
