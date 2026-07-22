@@ -420,6 +420,13 @@ app.put('/api/smart/update-score/:fixtureId', async (req, res) => {
     await updateStats(fixture.playerB, scoreB, scoreA);
     res.json({ success: true });
 });
+// Get all tournament names for a specific type
+app.get('/api/tournaments/list/:type', async (req, res) => {
+    try {
+        const tours = await Tournament.find({ type: req.params.type }, 'name _id');
+        res.json(tours);
+    } catch (err) { res.status(500).json(err); }
+});
 
 
 const PORT = process.env.PORT || 5000;
