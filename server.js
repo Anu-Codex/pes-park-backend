@@ -295,6 +295,7 @@ app.put('/api/players/:id/captain', async (req, res) => {
 const TeamSchema = new mongoose.Schema({
     name: String,
     logo: String,
+    members: [String],
     wins: { type: Number, default: 0 },
     draws: { type: Number, default: 0 },
     losses: { type: Number, default: 0 }
@@ -772,6 +773,23 @@ app.get('/api/players/profile/:id', async (req, res) => {
         }).sort({ createdAt: -1 });
 
         res.json({ player, matches });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+app.post('/api/teams/create', async (req, res) => {
+    try {
+        const newTeam = new Team(req.body);
+        await newTeam.save();
+        
+        // Automatically update the teamName and teamLogo for all selected members in the Player collection
+        if (req.body.members && req.body.members.length > 0) {
+            await Player.updateMany(
+                { name: { $in: req.body.members } },
+                { $set: { teamName: req.body.name, teamLogo: req.body.logo } }
+            );
+        }
+        res.json({ success: true, message: "Team Created and Members assigned!" });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
