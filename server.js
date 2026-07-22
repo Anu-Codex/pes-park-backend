@@ -727,35 +727,37 @@ app.get('/api/smart/sync-all-rewards', async (req, res) => {
         res.json({ success: true, message: "All rewards recalculated from history!" });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
+// --- server.js ---
 const HofSeasonSchema = new mongoose.Schema({
-    seasonName: { type: String, required: true, unique: true }, // e.g., "Season 6 • 2026"
-    specialHighlights: [{ label: String, value: String }], // Top yellow area
-    trophyWinners: [{ 
-        title: String, 
-        winner: String, 
-        squad: String, 
-        iconType: String // e.g., "ballon", "league", "ucl", "weekly"
-    }] 
+    seasonName: String,
+    specialHighlights: [{ label: String, value: String }],
+    trophyWinners: [{ title: String, winner: String }]
 });
-
 const HofSeason = mongoose.model('HofSeason', HofSeasonSchema);
 
-// API Routes
+// Route to save
+app.post('/api/hof/save', async (req, res) => {
+    try {
+        await HofSeason.findOneAndUpdate(
+            { seasonName: req.body.seasonName }, 
+            req.body, 
+            { upsert: true }
+        );
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Route to get list of seasons
 app.get('/api/hof/seasons', async (req, res) => {
-    const seasons = await HofSeason.find({}, 'seasonName');
+    const seasons = await HofSeason.find({}, 'seasonName').sort({ _id: -1 });
     res.json(seasons);
 });
 
+// Route to get specific season data
 app.get('/api/hof/data/:name', async (req, res) => {
     const data = await HofSeason.findOne({ seasonName: req.params.name });
     res.json(data);
 });
-
-app.post('/api/hof/save', async (req, res) => {
-    await HofSeason.findOneAndUpdate({ seasonName: req.body.seasonName }, req.body, { upsert: true });
-    res.json({ success: true });
-});
-
 
 
 const PORT = process.env.PORT || 5000;
