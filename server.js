@@ -165,13 +165,15 @@ const FixtureSchema = new mongoose.Schema({
 const AuctionFixture = mongoose.model('AuctionFixture', FixtureSchema);
 
 // 2. Tournament Rankings (Golden Boot / Best Players)
-const TourRankSchema = new mongoose.Schema({
-    category: String, // "Golden Boot" or "Best Player"
+const TournamentRankSchema = new mongoose.Schema({
+    tour: String,      // "auction", "solo", "weekend"
+    category: String,  // "boot" (Goals), "best" (Rating)
     playerName: String,
-    value: Number, // Goals or Rating
-    image: String
+    teamName: String,
+    totalValue: { type: Number, default: 0 }, // Rating or Goals
+    matches: { type: Number, default: 0 }
 });
-const TourRank = mongoose.model('TourRank', TourRankSchema);
+const TourRank = mongoose.model('TourRank', TournamentRankSchema);
 
 // --- API ROUTES ---
 app.get('/api/auction/fixtures', async (req, res) => res.json(await AuctionFixture.find()));
@@ -329,15 +331,7 @@ app.post('/api/debug', (req, res) => {
     res.json({ success: true });
 });
 // Replace/Update your Ranking Schema
-const TournamentRankSchema = new mongoose.Schema({
-    tour: String,      // "auction", "solo", "weekend"
-    category: String,  // "boot" (Goals), "best" (Rating)
-    playerName: String,
-    teamName: String,
-    totalValue: { type: Number, default: 0 }, // Rating or Goals
-    matches: { type: Number, default: 0 }
-});
-const TourRank = mongoose.model('TourRank', TournamentRankSchema);
+
 
 // API to save/update stats
 app.post('/api/tour-ranks', async (req, res) => {
