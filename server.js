@@ -321,6 +321,13 @@ app.get('/api/teams/all', async (req, res) => {
     const teams = await Team.find({}, 'name'); 
     res.json(teams);
 });
+// Add this route to your server.js
+app.post('/api/debug', (req, res) => {
+    console.log("--- FRONTEND ERROR LOG ---");
+    console.log(req.body.error);
+    console.log("--------------------------");
+    res.json({ success: true });
+});
 
 
 const PORT = process.env.PORT || 5000;
