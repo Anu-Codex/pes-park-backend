@@ -427,6 +427,29 @@ app.get('/api/tournaments/list/:type', async (req, res) => {
         res.json(tours);
     } catch (err) { res.status(500).json(err); }
 });
+// 1. Get ALL tournaments (for Dashboard dropdowns)
+app.get('/api/smart/tournaments', async (req, res) => {
+    try {
+        const tours = await Tournament.find().sort({ createdAt: -1 });
+        res.json(tours);
+    } catch (err) { res.status(500).json(err); }
+});
+
+// 2. Get participants for a specific tour (for Fixture dropdowns)
+app.get('/api/smart/participants/:tourId', async (req, res) => {
+    try {
+        const tour = await Tournament.findById(req.params.tourId);
+        res.json(tour ? tour.participants : []);
+    } catch (err) { res.status(500).json(err); }
+});
+
+// 3. Get Standings for a specific tour
+app.get('/api/smart/standings/:tourId', async (req, res) => {
+    try {
+        const data = await Standing.find({ tourId: req.params.tourId });
+        res.json(data);
+    } catch (err) { res.status(500).json(err); }
+});
 
 
 const PORT = process.env.PORT || 5000;
