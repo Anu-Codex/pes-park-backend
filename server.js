@@ -291,6 +291,41 @@ app.put('/api/players/:id/captain', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+// --- IMPORT MARKET VALUE FROM AUCTION DATABASE ---
+app.get('/api/danger/import-auction-mv', async (req, res) => {
+    try {
+        // 1. Get all players from your PES PARK collection
+        const pesPlayers = await Player.find();
+        let count = 0;
+
+        // 2. Access the Auction site's collection directly
+        // In the code you provided, the model is 'Player', so MongoDB naming is 'players'
+        const AuctionCollection = mongoose.connection.db.collection('players');
+
+        for (let p of pesPlayers) {
+            // Find the player in the Auction collection by name
+            const auctionPlayer = await AuctionCollection.findOne({ 
+                name: { $regex: new RegExp("^" + p.name + "$", "i") } 
+            });
+
+            if (auctionPlayer && auctionPlayer.soldTo && auctionPlayer.soldTo !== '-') {
+                // Logic: Extract "50" from "PSG (50M)"
+                const priceMatch = auctionPlayer.soldTo.match(/\((\d+)M\)/);
+                const finalPrice = priceMatch ? parseInt(priceMatch[1]) : 0;
+
+                if (finalPrice > 0) {
+                    await Player.findByIdAndUpdate(p._id, { marketValue: finalPrice });
+                    count++;
+                }
+            }
+        }
+
+        res.json({ success: true, message: `Updated Market Value for ${count} players from Auction data!` });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: err.message });
+    }
+});
 // 1. Team Schema
 const TeamSchema = new mongoose.Schema({
     name: String,
