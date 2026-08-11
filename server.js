@@ -124,6 +124,44 @@ app.put('/api/stats', async (req, res) => {
     await Stats.findOneAndUpdate({}, req.body);
     res.json({ success: true });
 });
+// --- IMPORT TEAM NAME AND LOGO FROM AUCTION SITE ---
+app.get('/api/danger/import-team-data', async (req, res) => {
+    try {
+        const pesPlayers = await Player.find();
+        const AuctionPlayers = mongoose.connection.db.collection('players');
+        const AuctionTeams = mongoose.connection.db.collection('teams');
+        let count = 0;
+
+        for (let p of pesPlayers) {
+            const aPlayer = await AuctionPlayers.findOne({ name: { $regex: new RegExp("^" + p.name + "$", "i") } });
+
+            if (aPlayer && aPlayer.soldTo && aPlayer.soldTo !== '-' && aPlayer.soldTo !== 'UNSOLD') {
+                // 1. Extract Team Name (e.g., "PSG (50M)" -> "PSG")
+                const teamName = aPlayer.soldTo.split(' (')[0].trim();
+                
+                // 2. Fetch Logo for this team from the auction 'teams' collection
+                const teamInfo = await AuctionTeams.findOne({ name: teamName });
+                const teamLogo = teamInfo ? teamInfo.logoUrl : "";
+
+                await Player.findByIdAndUpdate(p._id, { 
+                    teamName: teamName,
+                    teamLogo: teamLogo 
+                });
+                count++;
+            }
+        }
+        res.json({ success: true, message: `Imported Team data for ${count} players!` });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- ALLOW PLAYERS TO UPDATE SQUAD IMAGE SELF ---
+app.put('/api/players/:id/self-update-squad', async (req, res) => {
+    try {
+        const { squadImage } = req.body;
+        await Player.findByIdAndUpdate(req.params.id, { squadImage });
+        res.json({ success: true, message: "Squad Updated!" });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
 // Add these to your existing server.js
 
