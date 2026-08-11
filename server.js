@@ -162,6 +162,37 @@ app.put('/api/players/:id/self-update-squad', async (req, res) => {
         res.json({ success: true, message: "Squad Updated!" });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
+// --- FETCH FULL TEAM PROFILE DATA ---
+app.get('/api/teams/profile/:name', async (req, res) => {
+    try {
+        const teamName = req.params.name;
+
+        // 1. Get Team Basic Info
+        const team = await Team.findOne({ name: teamName });
+
+        // 2. Get all Players assigned to this team
+        const players = await Player.find({ teamName: teamName });
+
+        // 3. Get Last 5 Matches (Fixtures)
+        const matches = await Fixture.find({
+            $or: [{ playerA: teamName }, { playerB: teamName }],
+            status: "Completed"
+        }).sort({ createdAt: -1 }).limit(5);
+
+        // 4. Get Trophies from Hall of Fame
+        const hof = await HofSeason.find({ "trophyWinners.winner": teamName });
+        const trophies = [];
+        hof.forEach(season => {
+            season.trophyWinners.forEach(t => {
+                if(t.winner === teamName) trophies.push({ season: season.seasonName, title: t.title });
+            });
+        });
+
+        res.json({ team, players, matches, trophies });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 
 // Add these to your existing server.js
 
