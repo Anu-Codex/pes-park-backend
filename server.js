@@ -381,18 +381,21 @@ app.post('/api/captain/login', async (req, res) => {
         }
 
         // 4. FETCH TEAM DATA: Get the budget/purse from the Team collection
-        const teamData = await Team.findOne({ name: selectedTeam });
+        const teamName = selectedTeam; // e.g., "PSG"
 
-        if (!teamData) {
-            return res.status(404).json({ success: false, message: "Team record not found in database" });
-        }
+const squad = await mongoose.connection.db.collection('players').find({ 
+    soldTo: { $regex: new RegExp('^' + teamName + ' \\(') } 
+}).toArray();
 
-        // 5. SUCCESS: Send data to frontend
+// Also, ensure we fetch the LATEST logo from the teams collection
+const teamStats = await mongoose.connection.db.collection('teams').findOne({ name: teamName });
         res.json({ 
-            success: true, 
-            user: { name: user.name, email: user.email }, 
-            team: teamData 
-        });
+    success: true, 
+    teamName: teamName,
+    purse: teamStats ? teamStats.budget : 0,
+    logo: teamStats ? teamStats.logoUrl : "", // Fresh logo from DB
+    squad: squad 
+});
 
     } catch (err) {
         console.error("Login Crash:", err);
