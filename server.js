@@ -84,6 +84,43 @@ app.put('/api/players/:id', async (req, res) => {
     await Player.findByIdAndUpdate(req.params.id, req.body);
     res.json({ success: true });
 });
+// NEW: Optimized "All-in-One" Dressing Room Data
+app.get('/api/v2/dressing-room/:teamName', async (req, res) => {
+    try {
+        const { teamName } = req.params;
+
+        // Run all DB queries in parallel for maximum speed
+        const [teamData, allTeams, allListings] = await Promise.all([
+            // Query 1: Team & Players
+            (async () => {
+                const T = mongoose.connection.db.collection('teams');
+                const P = mongoose.connection.db.collection('players');
+                const team = await T.findOne({ name: teamName });
+                // Optimization: Use exact match instead of heavy regex if possible
+                const players = await P.find({ soldTo: { $regex: new RegExp('^' + teamName, 'i') } }).toArray();
+                return { team, players };
+            })(),
+            // Query 2: All Teams (for dropdown)
+            mongoose.model('Team').find({}, 'name'),
+            // Query 3: Market Listings
+            mongoose.models.TransferListing.find() 
+        ]);
+
+        // Filter offers in backend (faster than frontend)
+        const myOffers = allListings.filter(l => 
+            l.targetTeam === teamName || (l.targetTeam === "General" && l.fromTeam !== teamName)
+        );
+
+        res.json({
+            team: teamData.team,
+            players: teamData.players,
+            allTeams: allTeams.filter(t => t.name !== teamName),
+            offers: myOffers
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 // 1. Add to Player Schema (if not already there)
 // isOnTransferList: { type: Boolean, default: false },
 // transferPrice: { type: Number, default: 0 }
