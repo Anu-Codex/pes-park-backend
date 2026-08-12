@@ -13,8 +13,9 @@ const app = express();
 app.use(cors({ origin: "*" })); 
 
 // 2. ADD THIS: Allow the server to read the email/password you send
-app.use(express.json()); 
-app.use(express.urlencoded({ extended: true }));
+app.use(cors({ origin: "*" })); 
+app.use(express.json());
+
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
@@ -84,36 +85,25 @@ app.put('/api/players/:id', async (req, res) => {
 
 // 2. Captain Login Route
 // --- CAPTAIN LOGIN (USING AUCTION DB CREDENTIALS) ---
-// --- ADD THIS ROUTE FOR COMMUNITY SITE LOGIN ---
-app.use(express.json());
-// Ensure this is at the top to read form data
 // --- GET ALL TEAMS FOR LOGIN DROPDOWN ---
 app.get('/api/teams/all', async (req, res) => {
     try {
-        // This fetches only the names of the teams from the Team collection
-        const teams = await mongoose.model('Team').find({}, 'name');
+        const TeamModel = mongoose.model('Team');
+        const teams = await TeamModel.find({}, 'name');
+        res.header("Access-Control-Allow-Origin", "*"); // Extra safety header
         res.json(teams);
     } catch (err) {
-        console.error("Fetch Teams Error:", err);
-        res.status(500).json([]);
+        res.status(500).json({ error: err.message });
     }
 });
 
 app.post('/api/captain/login', async (req, res) => {
     try {
         const { email, password, selectedTeam } = req.body;
-        const user = await mongoose.model('User').findOne({ 
-            email: email.trim().toLowerCase(), 
-            role: 'captain' 
-        });
-
-        if (!user || user.name !== selectedTeam) {
-            return res.status(401).json({ success: false, message: "Account not found or Team mismatch" });
-        }
-
+        const user = await mongoose.model('User').findOne({ email: email.trim().toLowerCase(), role: 'captain' });
+        if (!user || user.name !== selectedTeam) return res.status(401).json({ success: false, message: "Mismatch" });
         const isMatch = await bcrypt.compare(password, user.password);
-        if (!isMatch) return res.status(401).json({ success: false, message: "Wrong Password" });
-
+        if (!isMatch) return res.status(401).json({ success: false, message: "Wrong Pass" });
         const team = await mongoose.model('Team').findOne({ name: selectedTeam });
         res.json({ success: true, user, team });
     } catch (err) {
