@@ -101,6 +101,29 @@ app.get('/api/teams/all', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+// --- ADD THIS TO COMMUNITY BACKEND server.js ---
+app.get('/api/teams/profile/:name', async (req, res) => {
+    try {
+        const teamName = req.params.name;
+        
+        // Connect to Auction DB collections directly
+        const AuctionPlayers = mongoose.connection.db.collection('players');
+        const AuctionTeams = mongoose.connection.db.collection('teams');
+
+        const team = await AuctionTeams.findOne({ name: teamName });
+        
+        // Find players where soldTo starts with "TeamName ("
+        const players = await AuctionPlayers.find({ 
+            soldTo: { $regex: new RegExp('^' + teamName + ' \\(') } 
+        }).toArray();
+
+        if (!team) return res.status(404).json({ error: "Team not found" });
+
+        res.json({ team, players });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 
 // --- server.js for pes-park-backend ---
 const axios = require('axios');
