@@ -219,6 +219,40 @@ app.get('/api/teams/profile/:name', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+app.post('/api/captain/login', async (req, res) => {
+    const { email, password, selectedTeam } = req.body;
+    try {
+        // Find user by email and ensure they are a captain
+        const user = await User.findOne({ email: email.toLowerCase(), role: 'captain' });
+        
+        if (!user) {
+            return res.status(401).json({ success: false, message: "Captain account not found." });
+        }
+
+        // Check if the selected dropdown team matches the user's name (Team name is stored in User.name for captains)
+        if (user.name !== selectedTeam) {
+            return res.status(401).json({ success: false, message: "You are not authorized for this team." });
+        }
+
+        // Verify password
+        const isMatch = await bcrypt.compare(password, user.password);
+        if (!isMatch) {
+            return res.status(401).json({ success: false, message: "Incorrect password." });
+        }
+
+        // Get full team details (budget, logo, etc.)
+        const team = await Team.findOne({ name: selectedTeam });
+
+        res.json({ 
+            success: true, 
+            user: { name: user.name, email: user.email }, 
+            team: team 
+        });
+
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 // 1. New Schema for Market Listings
 const transferSchema = new mongoose.Schema({
     playerName: String,
