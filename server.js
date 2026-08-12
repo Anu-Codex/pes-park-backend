@@ -179,31 +179,21 @@ app.post('/api/captain/login', async (req, res) => {
         res.status(500).json({ success: false, message: "Auction Server is Offline" });
     }
 });
-// --- PUBLISH TRANSFER LISTING ---
+// --- 1. LIST PLAYER (NO MONEY TOUCHED HERE) ---
 app.post('/api/market/list-player', async (req, res) => {
     const { playerName, fromTeam, releaseFee, addons, targetTeam } = req.body;
 
     try {
-        // 1. Check if Team exists and has money (Auction DB)
-        const AuctionTeams = mongoose.connection.db.collection('teams');
-        const team = await AuctionTeams.findOne({ name: fromTeam });
-        
-        if (!team || team.budget < Number(releaseFee)) {
-            return res.status(400).json({ success: false, message: "Insufficient purse balance." });
-        }
-
-        // 2. Deduct money from the Seller
-        await AuctionTeams.updateOne(
-            { name: fromTeam },
-            { $inc: { budget: -Number(releaseFee) } }
-        );
-
-        // 3. Create the listing in PES PARK DB
-        await TransferListing.create({
-            playerName, fromTeam, releaseFee, addons, targetTeam
+        // We simply create the listing. We do NOT deduct money from 'fromTeam' yet.
+        const newListing = await TransferListing.create({
+            playerName, 
+            fromTeam, 
+            releaseFee: Number(releaseFee), 
+            addons, 
+            targetTeam: targetTeam || "General"
         });
 
-        // 4. PRIVATE EMAIL LOGIC (Safety Wrapped)
+        // Notify via Email if it's a private offer
         if (targetTeam && targetTeam !== "General") {
             try {
                 const AuctionUsers = mongoose.connection.db.collection('users');
@@ -211,82 +201,77 @@ app.post('/api/market/list-player', async (req, res) => {
 
                 if (targetCaptain && targetCaptain.email) {
                     const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
-                    sendSmtpEmail.subject = `🚨 TRANSFER OFFER: ${playerName}`;
+                    sendSmtpEmail.subject = `🚨 PRIVATE TRANSFER OFFER: ${playerName}`;
                     sendSmtpEmail.htmlContent = `
                         <div style="font-family:sans-serif; background:#0f172a; color:white; padding:20px; border:2px solid #10b981; border-radius:15px;">
                             <h2>New Transfer Offer!</h2>
-                            <p><b>${fromTeam}</b> offered you <b>${playerName}</b> for <b>${releaseFee}M</b>.</p>
+                            <p><b>${fromTeam}</b> has offered you <b>${playerName}</b> for <b>${releaseFee}M</b>.</p>
                             <p>Terms: ${addons || 'None'}</p>
-                            <a href="https://pes-park-official.vercel.app/captain-login.html" style="color:#10b981;">Login to Accept</a>
+                            <a href="https://pes-park-official.vercel.app/captain-login.html" style="color:#10b981; font-weight:bold;">Login to Dressing Room to Accept</a>
                         </div>`;
-                    sendSmtpEmail.sender = { "name": "NEXUS LEGENDS MARKET", "email": process.env.BREVO_SENDER_EMAIL };
+                    sendSmtpEmail.sender = { "name": "NEXUS MARKET", "email": process.env.BREVO_SENDER_EMAIL };
                     sendSmtpEmail.to = [{ "email": targetCaptain.email }];
-
                     await apiInstance.sendTransacEmail(sendSmtpEmail);
                 }
-            } catch (emailErr) {
-                console.error("Email failed but listing saved:", emailErr.message);
-                // We don't return error here because the listing is already saved in DB
-            }
+            } catch (e) { console.log("Email notify failed, but listing created."); }
         }
 
-        res.json({ success: true, message: "Success!" });
-
+        res.json({ success: true, message: "Listing published! Money will transfer upon acceptance." });
     } catch (err) {
-        console.error("Critical Route Error:", err);
         res.status(500).json({ success: false, error: err.message });
     }
 });
-// --- ACCEPT TRANSFER OFFER ---
+
+// --- 2. ACCEPT OFFER (THE ONLY PLACE MONEY MOVES) ---
 app.post('/api/market/accept-offer', async (req, res) => {
     const { listingId, buyerTeamName } = req.body;
 
     try {
-        // 1. Find the listing details
         const listing = await TransferListing.findById(listingId);
-        if (!listing) return res.status(404).json({ error: "Offer no longer exists." });
+        if (!listing) return res.status(404).json({ error: "Offer expired or already accepted." });
 
         const fee = Number(listing.releaseFee);
         const sellerTeamName = listing.fromTeam;
         const playerName = listing.playerName;
 
-        // 2. Connect to Auction DB Collections
         const AuctionTeams = mongoose.connection.db.collection('teams');
         const AuctionPlayers = mongoose.connection.db.collection('players');
 
-        // 3. Check if Buyer has enough money
+        // 1. Check if Buyer has enough money
         const buyerTeam = await AuctionTeams.findOne({ name: buyerTeamName });
         if (!buyerTeam || buyerTeam.budget < fee) {
-            return res.status(400).json({ error: "Insufficient funds in your purse to accept this." });
+            return res.status(400).json({ error: `Insufficient Purse! You need ${fee}M but only have ${buyerTeam?.budget || 0}M.` });
         }
 
-        // 4. TRANSACTION: 
-        // A. Deduct Fee from Buyer
+        // --- THE ACTUAL TRANSACTION ---
+        
+        // 2. DEBIT Buyer
         await AuctionTeams.updateOne({ name: buyerTeamName }, { $inc: { budget: -fee } });
         
-        // B. Credit Fee to Seller
+        // 3. CREDIT Seller
         await AuctionTeams.updateOne({ name: sellerTeamName }, { $inc: { budget: fee } });
 
-        // C. Update Player's Team in Auction DB (Important for Sync)
-        // We update the 'soldTo' field to reflect the new team and the new price
+        // 4. Update Ownership in Auction DB
+        // Format: "TeamName (PriceM)"
         await AuctionPlayers.updateOne(
             { name: { $regex: new RegExp("^" + playerName + "$", "i") } },
             { $set: { soldTo: `${buyerTeamName} (${fee}M)` } }
         );
 
-        // D. Update Player in PES PARK DB
+        // 5. Update Player in Community DB
         await Player.findOneAndUpdate(
             { name: playerName },
             { teamName: buyerTeamName, marketValue: fee }
         );
 
-        // 5. Delete the listing so it disappears from the market
+        // 6. Remove listing from market
         await TransferListing.findByIdAndDelete(listingId);
 
-        res.json({ success: true, message: "Transfer Complete! Player moved and funds exchanged." });
+        res.json({ success: true, message: `Successfully signed ${playerName}! ${fee}M transferred.` });
 
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error("Transfer Error:", err);
+        res.status(500).json({ error: "Internal Server Error during transfer." });
     }
 });
 
