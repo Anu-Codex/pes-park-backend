@@ -67,6 +67,32 @@ app.put('/api/players/:id', async (req, res) => {
     await Player.findByIdAndUpdate(req.params.id, req.body);
     res.json({ success: true });
 });
+// 1. Add to Player Schema (if not already there)
+// isOnTransferList: { type: Boolean, default: false },
+// transferPrice: { type: Number, default: 0 }
+
+// 2. Captain Login Route
+app.post('/api/captain/login', async (req, res) => {
+    const { email, password } = req.body;
+    try {
+        const user = await User.findOne({ email: email.toLowerCase(), role: 'captain' });
+        if (!user) return res.status(401).json({ message: "Captain account not found" });
+
+        const isMatch = await bcrypt.compare(password, user.password);
+        if (!isMatch) return res.status(401).json({ message: "Invalid credentials" });
+
+        // Return user and their team info
+        const team = await Team.findOne({ name: user.name });
+        res.json({ success: true, user, team });
+    } catch (err) { res.status(500).send(err); }
+});
+
+// 3. Get Transfer Market News (Latest 10 Sold Players)
+app.get('/api/market/news', async (req, res) => {
+    const news = await Fixture.find({ status: "Completed" }).sort({ createdAt: -1 }).limit(5);
+    const trending = await Player.find().sort({ marketValue: -1 }).limit(5);
+    res.json({ news, trending });
+});
 // Stats Schema (To control the Blue Area from your first image)
 const StatsSchema = new mongoose.Schema({
     bdrLeader: String,
@@ -193,6 +219,66 @@ app.get('/api/teams/profile/:name', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+// 1. New Schema for Market Listings
+const transferSchema = new mongoose.Schema({
+    playerName: String,
+    fromTeam: String,
+    targetTeam: { type: String, default: "General" }, // If a specific team is targeted
+    releaseFee: Number,
+    addons: String,
+    timestamp: { type: Date, default: Date.now }
+});
+const TransferListing = mongoose.model('TransferListing', transferSchema);
+
+// 2. HELPER: Send Transfer Email
+async function sendTransferAlert(toEmail, subject, html) {
+    const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
+    sendSmtpEmail.subject = subject;
+    sendSmtpEmail.htmlContent = html;
+    sendSmtpEmail.sender = { "name": "PES PARK MARKET", "email": process.env.BREVO_SENDER_EMAIL };
+    sendSmtpEmail.to = [{ "email": toEmail }];
+    return apiInstance.sendTransacEmail(sendSmtpEmail);
+}
+
+// 3. ROUTE: List Player for Transfer
+app.post('/api/market/list-player', async (req, res) => {
+    const { playerName, fromTeam, releaseFee, addons, targetTeam } = req.body;
+
+    try {
+        // A. Deduct Fee from Team Purse
+        const team = await Team.findOneAndUpdate(
+            { name: fromTeam },
+            { $inc: { budget: -Number(releaseFee) } },
+            { new: true }
+        );
+
+        // B. Save to Transfer Listings
+        const listing = await TransferListing.create({
+            playerName, fromTeam, releaseFee, addons, targetTeam
+        });
+
+        // C. Notify Target Team via Email (If applicable)
+        if (targetTeam !== "General") {
+            const targetCaptain = await User.findOne({ name: targetTeam, role: 'captain' });
+            if (targetCaptain) {
+                await sendTransferAlert(
+                    targetCaptain.email, 
+                    `🚨 PRIVATE OFFER: ${playerName}`,
+                    `<h1>Transfer Offer</h1><p>${fromTeam} has offered you <b>${playerName}</b>.</p><p>Fee: ${releaseFee}M</p><p>Addons: ${addons}</p>`
+                );
+            }
+        }
+
+        res.json({ success: true, newBudget: team.budget });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// 4. ROUTE: Get All Active Listings (For transfer.html)
+app.get('/api/market/listings', async (req, res) => {
+    const data = await TransferListing.find().sort({ timestamp: -1 });
+    res.json(data);
+});
+
 
 // Add these to your existing server.js
 
