@@ -86,28 +86,42 @@ app.put('/api/players/:id', async (req, res) => {
 // 2. Captain Login Route
 // --- CAPTAIN LOGIN (USING AUCTION DB CREDENTIALS) ---
 // --- GET ALL TEAMS FOR LOGIN DROPDOWN ---
+// 1. TEST ROUTE: Open this in your browser to see if it works: 
+// https://nexus-acl-backend.onrender.com/test
+app.get('/', (req, res) => res.send("PES PARK Server is LIVE 🚀"));
+app.get('/test', (req, res) => res.json({ status: "Working", message: "API is reachable" }));
+
+// 2. THE TEAM LIST ROUTE (The one causing the 404)
 app.get('/api/teams/all', async (req, res) => {
     try {
-        const TeamModel = mongoose.model('Team');
-        const teams = await TeamModel.find({}, 'name');
-        res.header("Access-Control-Allow-Origin", "*"); // Extra safety header
+        const teams = await mongoose.model('Team').find({}, 'name');
+        console.log("Teams fetched for login:", teams.length);
         res.json(teams);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
+// 3. THE LOGIN ROUTE
 app.post('/api/captain/login', async (req, res) => {
     try {
         const { email, password, selectedTeam } = req.body;
-        const user = await mongoose.model('User').findOne({ email: email.trim().toLowerCase(), role: 'captain' });
-        if (!user || user.name !== selectedTeam) return res.status(401).json({ success: false, message: "Mismatch" });
+        const user = await mongoose.model('User').findOne({ 
+            email: email.trim().toLowerCase(), 
+            role: 'captain' 
+        });
+
+        if (!user || user.name !== selectedTeam) {
+            return res.status(401).json({ success: false, message: "Captain account not found or Team mismatch" });
+        }
+
         const isMatch = await bcrypt.compare(password, user.password);
-        if (!isMatch) return res.status(401).json({ success: false, message: "Wrong Pass" });
+        if (!isMatch) return res.status(401).json({ success: false, message: "Incorrect Password" });
+
         const team = await mongoose.model('Team').findOne({ name: selectedTeam });
         res.json({ success: true, user, team });
     } catch (err) {
-        res.status(500).json({ success: false, message: "Server Error" });
+        res.status(500).json({ success: false, message: "Internal Server Error" });
     }
 });
 
