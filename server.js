@@ -21,6 +21,11 @@ const io = new Server(server, { cors: { origin: "*" } });
 
 mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/efootball');
 
+const defaultClient = SibApiV3Sdk.ApiClient.instance;
+const apiKey = defaultClient.authentications['api-key'];
+apiKey.apiKey = process.env.BREVO_API_KEY; // Ensure this is in Render Env Vars
+const apiInstance = new SibApiV3Sdk.TransactionalEmailsApi();
+
 // --- SCHEMAS ---
 
 // Player Schema
@@ -142,41 +147,57 @@ app.post('/api/market/list-player', async (req, res) => {
     const { playerName, fromTeam, releaseFee, addons, targetTeam } = req.body;
 
     try {
-        // 1. Deduct the fee from the Team Budget in the Auction DB
-        const AuctionTeamModel = mongoose.connection.db.collection('teams');
-        const team = await AuctionTeamModel.findOneAndUpdate(
+        // 1. Check if Team exists and has money (Auction DB)
+        const AuctionTeams = mongoose.connection.db.collection('teams');
+        const team = await AuctionTeams.findOne({ name: fromTeam });
+        
+        if (!team || team.budget < Number(releaseFee)) {
+            return res.status(400).json({ success: false, message: "Insufficient purse balance." });
+        }
+
+        // 2. Deduct money from the Seller
+        await AuctionTeams.updateOne(
             { name: fromTeam },
-            { $inc: { budget: -Number(releaseFee) } },
-            { returnDocument: 'after' }
+            { $inc: { budget: -Number(releaseFee) } }
         );
 
-        // 2. Save Listing to PES PARK Database
-        const listing = await TransferListing.create({
-            playerName, fromTeam, releaseFee, addons, targetTeam,
-            timestamp: new Date()
+        // 3. Create the listing in PES PARK DB
+        await TransferListing.create({
+            playerName, fromTeam, releaseFee, addons, targetTeam
         });
 
-        // 3. If Private Offer, send Email to Target Captain
-        if (targetTeam !== "General") {
-            const AuctionUsers = mongoose.connection.db.collection('users');
-            const targetCap = await AuctionUsers.findOne({ name: targetTeam, role: 'captain' });
-            
-            if (targetCap && targetCap.email) {
-                await sendOTPEmail(targetCap.email, "OFFER", `
-                    <div style="background:#0f172a; color:white; padding:20px; border-radius:15px; border:1px solid #10b981;">
-                        <h2 style="color:#10b981;">New Transfer Offer!</h2>
-                        <p><b>${fromTeam}</b> has sent you a private offer for <b>${playerName}</b>.</p>
-                        <p><b>Release Fee:</b> ${releaseFee}M</p>
-                        <p><b>Terms:</b> ${addons || 'Standard Transfer'}</p>
-                        <a href="https://your-site.com/captain-login.html" style="background:#10b981; color:black; padding:10px 20px; text-decoration:none; border-radius:5px; font-weight:bold;">View in Dressing Room</a>
-                    </div>
-                `);
+        // 4. PRIVATE EMAIL LOGIC (Safety Wrapped)
+        if (targetTeam && targetTeam !== "General") {
+            try {
+                const AuctionUsers = mongoose.connection.db.collection('users');
+                const targetCaptain = await AuctionUsers.findOne({ name: targetTeam, role: 'captain' });
+
+                if (targetCaptain && targetCaptain.email) {
+                    const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
+                    sendSmtpEmail.subject = `🚨 TRANSFER OFFER: ${playerName}`;
+                    sendSmtpEmail.htmlContent = `
+                        <div style="font-family:sans-serif; background:#0f172a; color:white; padding:20px; border:2px solid #10b981; border-radius:15px;">
+                            <h2>New Transfer Offer!</h2>
+                            <p><b>${fromTeam}</b> offered you <b>${playerName}</b> for <b>${releaseFee}M</b>.</p>
+                            <p>Terms: ${addons || 'None'}</p>
+                            <a href="https://pes-park-official.vercel.app/captain-login.html" style="color:#10b981;">Login to Accept</a>
+                        </div>`;
+                    sendSmtpEmail.sender = { "name": "NEXUS LEGENDS MARKET", "email": process.env.BREVO_SENDER_EMAIL };
+                    sendSmtpEmail.to = [{ "email": targetCaptain.email }];
+
+                    await apiInstance.sendTransacEmail(sendSmtpEmail);
+                }
+            } catch (emailErr) {
+                console.error("Email failed but listing saved:", emailErr.message);
+                // We don't return error here because the listing is already saved in DB
             }
         }
 
-        res.json({ success: true, newBudget: team.value.budget });
+        res.json({ success: true, message: "Success!" });
+
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error("Critical Route Error:", err);
+        res.status(500).json({ success: false, error: err.message });
     }
 });
 // --- ACCEPT TRANSFER OFFER ---
