@@ -248,38 +248,55 @@ app.get('/api/teams/profile/:name', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+// --- FIXED CAPTAIN LOGIN FOR AUCTION SYNC ---
 app.post('/api/captain/login', async (req, res) => {
-    const { email, password, selectedTeam } = req.body;
     try {
-        // Find user by email and ensure they are a captain
-        const user = await User.findOne({ email: email.toLowerCase(), role: 'captain' });
-        
+        // We receive email, password, and the team name selected from dropdown
+        const { email, password, selectedTeam } = req.body;
+
+        if (!email || !password || !selectedTeam) {
+            return res.status(400).json({ success: false, message: "All fields are required" });
+        }
+
+        // 1. Find the user where email matches AND role is 'captain'
+        const user = await User.findOne({ 
+            email: email.trim().toLowerCase(), 
+            role: 'captain' 
+        });
+
         if (!user) {
-            return res.status(401).json({ success: false, message: "Captain account not found." });
+            return res.status(401).json({ success: false, message: "Email not found or not a Captain" });
         }
 
-        // Check if the selected dropdown team matches the user's name (Team name is stored in User.name for captains)
+        // 2. CHECK TEAM MATCH: 
+        // In your auction site, 'Team Name' is saved in the 'name' field of the User collection.
         if (user.name !== selectedTeam) {
-            return res.status(401).json({ success: false, message: "You are not authorized for this team." });
+            return res.status(401).json({ success: false, message: "This email is not linked to " + selectedTeam });
         }
 
-        // Verify password
+        // 3. VERIFY PASSWORD: Uses bcrypt to compare with the 'Set Password' from auction site
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) {
-            return res.status(401).json({ success: false, message: "Incorrect password." });
+            return res.status(401).json({ success: false, message: "Incorrect password" });
         }
 
-        // Get full team details (budget, logo, etc.)
-        const team = await Team.findOne({ name: selectedTeam });
+        // 4. FETCH TEAM DATA: Get the budget/purse from the Team collection
+        const teamData = await Team.findOne({ name: selectedTeam });
 
+        if (!teamData) {
+            return res.status(404).json({ success: false, message: "Team record not found in database" });
+        }
+
+        // 5. SUCCESS: Send data to frontend
         res.json({ 
             success: true, 
             user: { name: user.name, email: user.email }, 
-            team: team 
+            team: teamData 
         });
 
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error("Login Crash:", err);
+        res.status(500).json({ success: false, message: "Internal Server Error" });
     }
 });
 // 1. New Schema for Market Listings
