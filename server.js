@@ -120,6 +120,101 @@ app.post('/api/captain/login', async (req, res) => {
         res.status(500).json({ success: false, message: "Auction Server is Offline" });
     }
 });
+// --- PUBLISH TRANSFER LISTING ---
+app.post('/api/market/list-player', async (req, res) => {
+    const { playerName, fromTeam, releaseFee, addons, targetTeam } = req.body;
+
+    try {
+        // 1. Deduct the fee from the Team Budget in the Auction DB
+        const AuctionTeamModel = mongoose.connection.db.collection('teams');
+        const team = await AuctionTeamModel.findOneAndUpdate(
+            { name: fromTeam },
+            { $inc: { budget: -Number(releaseFee) } },
+            { returnDocument: 'after' }
+        );
+
+        // 2. Save Listing to PES PARK Database
+        const listing = await TransferListing.create({
+            playerName, fromTeam, releaseFee, addons, targetTeam,
+            timestamp: new Date()
+        });
+
+        // 3. If Private Offer, send Email to Target Captain
+        if (targetTeam !== "General") {
+            const AuctionUsers = mongoose.connection.db.collection('users');
+            const targetCap = await AuctionUsers.findOne({ name: targetTeam, role: 'captain' });
+            
+            if (targetCap && targetCap.email) {
+                await sendOTPEmail(targetCap.email, "OFFER", `
+                    <div style="background:#0f172a; color:white; padding:20px; border-radius:15px; border:1px solid #10b981;">
+                        <h2 style="color:#10b981;">New Transfer Offer!</h2>
+                        <p><b>${fromTeam}</b> has sent you a private offer for <b>${playerName}</b>.</p>
+                        <p><b>Release Fee:</b> ${releaseFee}M</p>
+                        <p><b>Terms:</b> ${addons || 'Standard Transfer'}</p>
+                        <a href="https://your-site.com/captain-login.html" style="background:#10b981; color:black; padding:10px 20px; text-decoration:none; border-radius:5px; font-weight:bold;">View in Dressing Room</a>
+                    </div>
+                `);
+            }
+        }
+
+        res.json({ success: true, newBudget: team.value.budget });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+// --- ACCEPT TRANSFER OFFER ---
+app.post('/api/market/accept-offer', async (req, res) => {
+    const { listingId, buyerTeamName } = req.body;
+
+    try {
+        // 1. Find the listing details
+        const listing = await TransferListing.findById(listingId);
+        if (!listing) return res.status(404).json({ error: "Offer no longer exists." });
+
+        const fee = Number(listing.releaseFee);
+        const sellerTeamName = listing.fromTeam;
+        const playerName = listing.playerName;
+
+        // 2. Connect to Auction DB Collections
+        const AuctionTeams = mongoose.connection.db.collection('teams');
+        const AuctionPlayers = mongoose.connection.db.collection('players');
+
+        // 3. Check if Buyer has enough money
+        const buyerTeam = await AuctionTeams.findOne({ name: buyerTeamName });
+        if (!buyerTeam || buyerTeam.budget < fee) {
+            return res.status(400).json({ error: "Insufficient funds in your purse to accept this." });
+        }
+
+        // 4. TRANSACTION: 
+        // A. Deduct Fee from Buyer
+        await AuctionTeams.updateOne({ name: buyerTeamName }, { $inc: { budget: -fee } });
+        
+        // B. Credit Fee to Seller
+        await AuctionTeams.updateOne({ name: sellerTeamName }, { $inc: { budget: fee } });
+
+        // C. Update Player's Team in Auction DB (Important for Sync)
+        // We update the 'soldTo' field to reflect the new team and the new price
+        await AuctionPlayers.updateOne(
+            { name: { $regex: new RegExp("^" + playerName + "$", "i") } },
+            { $set: { soldTo: `${buyerTeamName} (${fee}M)` } }
+        );
+
+        // D. Update Player in PES PARK DB
+        await Player.findOneAndUpdate(
+            { name: playerName },
+            { teamName: buyerTeamName, marketValue: fee }
+        );
+
+        // 5. Delete the listing so it disappears from the market
+        await TransferListing.findByIdAndDelete(listingId);
+
+        res.json({ success: true, message: "Transfer Complete! Player moved and funds exchanged." });
+
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 
 // 3. Get Transfer Market News (Latest 10 Sold Players)
 app.get('/api/market/news', async (req, res) => {
