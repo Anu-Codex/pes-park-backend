@@ -73,37 +73,38 @@ app.put('/api/players/:id', async (req, res) => {
 
 // 2. Captain Login Route
 // --- CAPTAIN LOGIN (USING AUCTION DB CREDENTIALS) ---
+// --- ADD THIS ROUTE FOR COMMUNITY SITE LOGIN ---
+app.use(express.json()); // Ensure this is at the top to read form data
+
 app.post('/api/captain/login', async (req, res) => {
     try {
         const { email, password, selectedTeam } = req.body;
 
-        // 1. Find user in the SHARED 'users' collection
-        // We trim and lowercase to prevent "undefined" errors from spaces
+        // 1. Find user by email and role
         const user = await User.findOne({ 
             email: email.trim().toLowerCase(), 
             role: 'captain' 
         });
 
         if (!user) {
-            return res.status(401).json({ success: false, message: "Captain account not found" });
+            return res.status(401).json({ success: false, message: "Captain account not found." });
         }
 
-        // 2. Check if the team they picked matches the one linked to their account
-        // Note: In your auction code, the Team Name is stored in user.name
+        // 2. Check if the team name matches the user's name (Auction site saves Team Name in user.name)
         if (user.name !== selectedTeam) {
-            return res.status(401).json({ success: false, message: "Team mismatch for this email" });
+            return res.status(401).json({ success: false, message: "Team mismatch for this account." });
         }
 
-        // 3. Verify Password using Bcrypt (Matches auction site hashing)
+        // 3. Verify Password using Bcrypt
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) {
-            return res.status(401).json({ success: false, message: "Incorrect password" });
+            return res.status(401).json({ success: false, message: "Incorrect password." });
         }
 
-        // 4. Fetch the real-time Team Purse/Data
+        // 4. Get Team Data (Budget, Logo)
         const team = await Team.findOne({ name: selectedTeam });
 
-        // 5. Send success response with data the frontend expects
+        // 5. Send data back
         res.json({ 
             success: true, 
             user: { name: user.name, email: user.email }, 
@@ -111,8 +112,8 @@ app.post('/api/captain/login', async (req, res) => {
         });
 
     } catch (err) {
-        console.error("Login Error:", err);
-        res.status(500).json({ success: false, message: "Server error. Try again later." });
+        console.error("Login Route Error:", err);
+        res.status(500).json({ success: false, message: "Server Error. Check Backend Logs." });
     }
 });
 
