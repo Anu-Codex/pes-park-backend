@@ -102,46 +102,22 @@ app.get('/api/teams/all', async (req, res) => {
     }
 });
 
-// --- DYNAMIC DATA IMPORT ROUTE ---
+// --- ADD TO COMMUNITY BACKEND (pes-park-backend) server.js ---
+const axios = require('axios'); // Ensure axios is installed: npm install axios
+
 app.post('/api/captain/login', async (req, res) => {
     try {
-        const { email, password, selectedTeam } = req.body;
-
-        // 1. Authenticate using Auction Site Credentials
-        const user = await mongoose.model('User').findOne({ 
-            email: email.trim().toLowerCase(), 
-            role: 'captain' 
-        });
-
-        if (!user || user.name !== selectedTeam) {
-            return res.status(401).json({ success: false, message: "Captain account not linked to this team." });
-        }
-
-        // 2. Check Password (Auction site uses Bcrypt)
-        const isMatch = await bcrypt.compare(password, user.password);
-        if (!isMatch) return res.status(401).json({ success: false, message: "Incorrect Password." });
-
-        // 3. IMPORT TEAM STATS from Auction Collections
-        const teamStats = await mongoose.model('Team').findOne({ name: selectedTeam });
+        // Forward the login request to the Auction Backend
+        const auctionRes = await axios.post('https://nexus-acl-backend.onrender.com/api/sync/verify-captain', req.body);
         
-        // 4. IMPORT SQUAD from Auction Collections
-        // Searches for players where 'soldTo' contains the team name
-        const squad = await mongoose.model('Player').find({ 
-            soldTo: { $regex: new RegExp('^' + selectedTeam) } 
-        });
-
-        // 5. SEND COMPLETE DATA PACK
-        res.json({ 
-            success: true, 
-            teamName: user.name,
-            purse: teamStats ? teamStats.budget : 0,
-            logo: teamStats ? teamStats.logoUrl : "",
-            playerCount: squad.length,
-            squad: squad 
-        });
-
+        // If Auction site says OK, send that data to the Community site
+        res.json(auctionRes.data);
     } catch (err) {
-        res.status(500).json({ success: false, message: "Sync Error with Auction Database." });
+        // Capture specific error from Auction server
+        if (err.response) {
+            return res.status(err.response.status).json(err.response.data);
+        }
+        res.status(500).json({ success: false, message: "Cannot reach Auction Server" });
     }
 });
 
