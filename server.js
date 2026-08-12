@@ -102,22 +102,22 @@ app.get('/api/teams/all', async (req, res) => {
     }
 });
 
-// --- ADD TO COMMUNITY BACKEND (pes-park-backend) server.js ---
-const axios = require('axios'); // Ensure axios is installed: npm install axios
+// --- server.js for pes-park-backend ---
+const axios = require('axios');
 
 app.post('/api/captain/login', async (req, res) => {
     try {
-        // Forward the login request to the Auction Backend
+        // Forwarding to the Auction backend bridge we just created
         const auctionRes = await axios.post('https://nexus-acl-backend.onrender.com/api/sync/verify-captain', req.body);
         
-        // If Auction site says OK, send that data to the Community site
+        // Return the full data pack (purse, squad, etc.) to the website
         res.json(auctionRes.data);
     } catch (err) {
-        // Capture specific error from Auction server
         if (err.response) {
+            // This catches the "Mismatch" or "Wrong Pass" from Auction server
             return res.status(err.response.status).json(err.response.data);
         }
-        res.status(500).json({ success: false, message: "Cannot reach Auction Server" });
+        res.status(500).json({ success: false, message: "Auction Server is Offline" });
     }
 });
 
