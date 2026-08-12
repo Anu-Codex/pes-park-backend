@@ -418,17 +418,71 @@ const teamStats = await mongoose.connection.db.collection('teams').findOne({ nam
         console.error("Login Crash:", err);
         res.status(500).json({ success: false, message: "Internal Server Error" });
     }
-});
-// 1. New Schema for Market Listings
+});// --- ADD TO TOP OF server.js ---
 const transferSchema = new mongoose.Schema({
     playerName: String,
     fromTeam: String,
-    targetTeam: { type: String, default: "General" }, // If a specific team is targeted
+    targetTeam: { type: String, default: "General" },
     releaseFee: Number,
     addons: String,
     timestamp: { type: Date, default: Date.now }
 });
-const TransferListing = mongoose.model('TransferListing', transferSchema);
+const TransferListing = mongoose.models.TransferListing || mongoose.model('TransferListing', transferSchema);
+
+app.post('/api/market/list-player', async (req, res) => {
+    const { playerName, fromTeam, releaseFee, addons, targetTeam } = req.body;
+
+    try {
+        // 1. DEDUCT FEE: Use the shared database connection to update the Auction 'teams' collection
+        const AuctionTeams = mongoose.connection.db.collection('teams');
+        await AuctionTeams.updateOne(
+            { name: fromTeam },
+            { $inc: { budget: -Number(releaseFee) } }
+        );
+
+        // 2. SAVE LISTING: Store the offer in the Community DB
+        const newListing = await TransferListing.create({
+            playerName, fromTeam, releaseFee, addons, targetTeam
+        });
+
+        // 3. PRIVATE EMAIL LOGIC: If a specific team is targeted, notify their captain
+        if (targetTeam && targetTeam !== "General") {
+            const AuctionUsers = mongoose.connection.db.collection('users');
+            const targetCaptain = await AuctionUsers.findOne({ name: targetTeam, role: 'captain' });
+
+            if (targetCaptain && targetCaptain.email) {
+                // Prepare Brevo Email
+                const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
+                sendSmtpEmail.subject = `🚨 TRANSFER OFFER: ${playerName}`;
+                sendSmtpEmail.htmlContent = `
+                    <div style="font-family: sans-serif; background:#0f172a; color:white; padding:30px; border-radius:20px; border:2px solid #10b981;">
+                        <h2 style="color:#10b981; margin-top:0;">New Private Offer!</h2>
+                        <p>Captain of <b>${fromTeam}</b> has sent you a direct offer.</p>
+                        <hr style="border:0; border-top:1px solid #1e293b; margin:20px 0;">
+                        <p style="font-size:18px;">Player: <b>${playerName}</b></p>
+                        <p style="font-size:18px;">Release Fee: <span style="color:#10b981;">${releaseFee}M</span></p>
+                        <p style="color:#94a3b8;">Terms: ${addons || 'N/A'}</p>
+                        <br>
+                        <a href="https://pes-park-official.vercel.app/captain-login.html" 
+                           style="display:inline-block; background:#10b981; color:black; padding:12px 25px; border-radius:10px; text-decoration:none; font-weight:bold;">
+                           Log in to Accept
+                        </a>
+                    </div>`;
+                sendSmtpEmail.sender = { "name": "NEXUS LEGENDS MARKET", "email": process.env.BREVO_SENDER_EMAIL };
+                sendSmtpEmail.to = [{ "email": targetCaptain.email }];
+                
+                await apiInstance.sendTransacEmail(sendSmtpEmail);
+                console.log(`Email sent to captain of ${targetTeam}`);
+            }
+        }
+
+        res.json({ success: true, message: "Listing published and email sent!" });
+
+    } catch (err) {
+        console.error("Publish Error:", err);
+        res.status(500).json({ error: "Failed to publish listing." });
+    }
+});
 
 // 2. HELPER: Send Transfer Email
 async function sendTransferAlert(toEmail, subject, html) {
