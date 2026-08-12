@@ -85,7 +85,19 @@ app.put('/api/players/:id', async (req, res) => {
 // 2. Captain Login Route
 // --- CAPTAIN LOGIN (USING AUCTION DB CREDENTIALS) ---
 // --- ADD THIS ROUTE FOR COMMUNITY SITE LOGIN ---
-app.use(express.json()); // Ensure this is at the top to read form data
+app.use(express.json());
+// Ensure this is at the top to read form data
+// --- GET ALL TEAMS FOR LOGIN DROPDOWN ---
+app.get('/api/teams/all', async (req, res) => {
+    try {
+        // This fetches only the names of the teams from the Team collection
+        const teams = await mongoose.model('Team').find({}, 'name');
+        res.json(teams);
+    } catch (err) {
+        console.error("Fetch Teams Error:", err);
+        res.status(500).json([]);
+    }
+});
 
 app.post('/api/captain/login', async (req, res) => {
     try {
