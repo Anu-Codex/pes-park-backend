@@ -274,6 +274,96 @@ app.post('/api/market/accept-offer', async (req, res) => {
         res.status(500).json({ error: "Internal Server Error during transfer." });
     }
 });
+// --- 1. GET PLAYERS OF A SPECIFIC TEAM (To populate trade dropdown) ---
+app.get('/api/teams/players/:teamName', async (req, res) => {
+    try {
+        const P = mongoose.connection.db.collection('players');
+        const players = await P.find({ 
+            soldTo: { $regex: new RegExp('^' + req.params.teamName, 'i') } 
+        }).toArray();
+        res.json(players);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- 2. LIST A TRADE OFFER ---
+// We update the listing schema logic to include trade details
+app.post('/api/market/list-trade', async (req, res) => {
+    const { fromTeam, myPlayer, targetTeam, targetPlayer, cashOffer, addons, isPublic } = req.body;
+    try {
+        const listing = await TransferListing.create({
+            playerName: myPlayer, // The player I am giving
+            fromTeam: fromTeam,
+            targetTeam: isPublic ? "General" : targetTeam,
+            tradePlayerWanted: targetPlayer, // The player I want in return
+            releaseFee: Number(cashOffer) || 0, // Extra cash I am paying
+            addons: addons,
+            type: "TRADE"
+        });
+
+        // EMAIL LOGIC (Same as transfer listing)
+        if (!isPublic && targetTeam !== "General") {
+            try {
+                const AuctionUsers = mongoose.connection.db.collection('users');
+                const targetCaptain = await AuctionUsers.findOne({ name: targetTeam, role: 'captain' });
+
+                if (targetCaptain && targetCaptain.email) {
+                    const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
+                    sendSmtpEmail.subject = `🚨 PRIVATE TRADE OFFER: ${playerName}`;
+                    sendSmtpEmail.htmlContent = `
+                        <div style="font-family:sans-serif; background:#0f172a; color:white; padding:20px; border:2px solid #10b981; border-radius:15px;">
+                            <h2>New Trade Offer!</h2>
+                            <p><b>${fromTeam}</b> has offered you <b>${playerName}</b> For <b>${tradePlayerWanted}</b>.</p>
+                            <p>EXTRA CASH: ${addons || 'None'}M</p>
+                            <a href="https://pes-park-official.vercel.app/captain-login.html" style="color:#10b981; font-weight:bold;">Login to Dressing Room to Accept</a>
+                        </div>`;
+                    sendSmtpEmail.sender = { "name": "NEXUS MARKET", "email": process.env.BREVO_SENDER_EMAIL };
+                    sendSmtpEmail.to = [{ "email": targetCaptain.email }];
+                    await apiInstance.sendTransacEmail(sendSmtpEmail);
+                }
+            } catch (e) { console.log("Email notify failed, but listing created."); }
+            // ... (Use existing Brevo logic to notify targetTeam Captain about a Trade Proposal)
+        }
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- 3. ACCEPT TRADE (SWAP LOGIC) ---
+app.post('/api/market/accept-trade', async (req, res) => {
+    const { listingId, acceptorTeam } = req.body;
+    try {
+        const listing = await TransferListing.findById(listingId);
+        if (!listing) return res.status(404).json({ error: "Offer expired." });
+
+        const cash = Number(listing.releaseFee);
+        const playerA = listing.playerName; // From Proposer
+        const playerB = listing.tradePlayerWanted; // From Acceptor
+        const teamA = listing.fromTeam; // Proposer
+        const teamB = acceptorTeam; // Acceptor
+
+        const T = mongoose.connection.db.collection('teams');
+        const P = mongoose.connection.db.collection('players');
+
+        // Check if Proposer (Team A) has the cash he offered
+        const proposer = await T.findOne({ name: teamA });
+        if (proposer.budget < cash) return res.status(400).json({ error: "Proposer no longer has the funds." });
+
+        // --- THE SWAP TRANSACTION ---
+        // 1. Move Cash (Team A pays Team B)
+        await T.updateOne({ name: teamA }, { $inc: { budget: -cash } });
+        await T.updateOne({ name: teamB }, { $inc: { budget: cash } });
+
+        // 2. Swap Player A -> Team B
+        await P.updateOne({ name: playerA }, { $set: { soldTo: `${teamB} (TRADE)` } });
+        await Player.findOneAndUpdate({ name: playerA }, { teamName: teamB });
+
+        // 3. Swap Player B -> Team A
+        await P.updateOne({ name: playerB }, { $set: { soldTo: `${teamA} (TRADE)` } });
+        await Player.findOneAndUpdate({ name: playerB }, { teamName: teamA });
+
+        await TransferListing.findByIdAndDelete(listingId);
+        res.json({ success: true, message: "Swap Complete!" });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
 
 // 3. Get Transfer Market News (Latest 10 Sold Players)
