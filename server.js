@@ -1,11 +1,22 @@
+require('dotenv').config();
 const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
 const mongoose = require('mongoose');
 const cors = require('cors');
-require('dotenv').config();
+const SibApiV3Sdk = require('sib-api-v3-sdk');
+const bcrypt = require('bcryptjs');
 
 const app = express();
-app.use(cors());
-app.use(express.json());
+
+// 1. ADD THIS: Allow your website to talk to the server
+app.use(cors({ origin: "*" })); 
+
+// 2. ADD THIS: Allow the server to read the email/password you send
+app.use(express.json()); 
+app.use(express.urlencoded({ extended: true }));
+const server = http.createServer(app);
+const io = new Server(server, { cors: { origin: "*" } });
 
 mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/efootball');
 
@@ -79,41 +90,22 @@ app.use(express.json()); // Ensure this is at the top to read form data
 app.post('/api/captain/login', async (req, res) => {
     try {
         const { email, password, selectedTeam } = req.body;
-
-        // 1. Find user by email and role
-        const user = await User.findOne({ 
+        const user = await mongoose.model('User').findOne({ 
             email: email.trim().toLowerCase(), 
             role: 'captain' 
         });
 
-        if (!user) {
-            return res.status(401).json({ success: false, message: "Captain account not found." });
+        if (!user || user.name !== selectedTeam) {
+            return res.status(401).json({ success: false, message: "Account not found or Team mismatch" });
         }
 
-        // 2. Check if the team name matches the user's name (Auction site saves Team Name in user.name)
-        if (user.name !== selectedTeam) {
-            return res.status(401).json({ success: false, message: "Team mismatch for this account." });
-        }
-
-        // 3. Verify Password using Bcrypt
         const isMatch = await bcrypt.compare(password, user.password);
-        if (!isMatch) {
-            return res.status(401).json({ success: false, message: "Incorrect password." });
-        }
+        if (!isMatch) return res.status(401).json({ success: false, message: "Wrong Password" });
 
-        // 4. Get Team Data (Budget, Logo)
-        const team = await Team.findOne({ name: selectedTeam });
-
-        // 5. Send data back
-        res.json({ 
-            success: true, 
-            user: { name: user.name, email: user.email }, 
-            team: team 
-        });
-
+        const team = await mongoose.model('Team').findOne({ name: selectedTeam });
+        res.json({ success: true, user, team });
     } catch (err) {
-        console.error("Login Route Error:", err);
-        res.status(500).json({ success: false, message: "Server Error. Check Backend Logs." });
+        res.status(500).json({ success: false, message: "Server Error" });
     }
 });
 
