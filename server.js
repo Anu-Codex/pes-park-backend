@@ -72,19 +72,48 @@ app.put('/api/players/:id', async (req, res) => {
 // transferPrice: { type: Number, default: 0 }
 
 // 2. Captain Login Route
+// --- CAPTAIN LOGIN (USING AUCTION DB CREDENTIALS) ---
 app.post('/api/captain/login', async (req, res) => {
-    const { email, password } = req.body;
     try {
-        const user = await User.findOne({ email: email.toLowerCase(), role: 'captain' });
-        if (!user) return res.status(401).json({ message: "Captain account not found" });
+        const { email, password, selectedTeam } = req.body;
 
+        // 1. Find user in the SHARED 'users' collection
+        // We trim and lowercase to prevent "undefined" errors from spaces
+        const user = await User.findOne({ 
+            email: email.trim().toLowerCase(), 
+            role: 'captain' 
+        });
+
+        if (!user) {
+            return res.status(401).json({ success: false, message: "Captain account not found" });
+        }
+
+        // 2. Check if the team they picked matches the one linked to their account
+        // Note: In your auction code, the Team Name is stored in user.name
+        if (user.name !== selectedTeam) {
+            return res.status(401).json({ success: false, message: "Team mismatch for this email" });
+        }
+
+        // 3. Verify Password using Bcrypt (Matches auction site hashing)
         const isMatch = await bcrypt.compare(password, user.password);
-        if (!isMatch) return res.status(401).json({ message: "Invalid credentials" });
+        if (!isMatch) {
+            return res.status(401).json({ success: false, message: "Incorrect password" });
+        }
 
-        // Return user and their team info
-        const team = await Team.findOne({ name: user.name });
-        res.json({ success: true, user, team });
-    } catch (err) { res.status(500).send(err); }
+        // 4. Fetch the real-time Team Purse/Data
+        const team = await Team.findOne({ name: selectedTeam });
+
+        // 5. Send success response with data the frontend expects
+        res.json({ 
+            success: true, 
+            user: { name: user.name, email: user.email }, 
+            team: team 
+        });
+
+    } catch (err) {
+        console.error("Login Error:", err);
+        res.status(500).json({ success: false, message: "Server error. Try again later." });
+    }
 });
 
 // 3. Get Transfer Market News (Latest 10 Sold Players)
