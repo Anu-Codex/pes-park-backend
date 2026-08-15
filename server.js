@@ -33,6 +33,7 @@ const apiInstance = new SibApiV3Sdk.TransactionalEmailsApi();
 const PlayerSchema = new mongoose.Schema({
     name: { type: String, required: true },
     nickname: String,
+    image: String,
     backgroundImage: String,
     teamName: String,
     teamLogo: String,
@@ -79,10 +80,27 @@ app.get('/api/players/:id', async (req, res) => {
     res.json(player);
 });
 
-// UPDATE Player Stats (Dashboard)
+// UPDATE Player Stats (Dashboard & Profile)
 app.put('/api/players/:id', async (req, res) => {
-    await Player.findByIdAndUpdate(req.params.id, req.body);
-    res.json({ success: true });
+    try {
+        console.log("Incoming Update for ID:", req.params.id);
+        console.log("Data received:", req.body); // This will show if 'image' is empty or not
+
+        const updatedPlayer = await Player.findByIdAndUpdate(
+            req.params.id, 
+            { $set: req.body }, 
+            { new: true } // Returns the updated document
+        );
+
+        if (!updatedPlayer) {
+            return res.status(404).json({ success: false, message: "Player not found" });
+        }
+
+        res.json({ success: true, player: updatedPlayer });
+    } catch (err) {
+        console.error("Update Error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
 });
 // NEW: Optimized "All-in-One" Dressing Room Data
 app.get('/api/v2/dressing-room/:teamName', async (req, res) => {
