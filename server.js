@@ -136,7 +136,7 @@ app.get('/test', (req, res) => res.json({ status: "Working", message: "API is re
 // 2. THE TEAM LIST ROUTE (The one causing the 404)
 app.get('/api/teams/all', async (req, res) => {
     try {
-        const teams = await mongoose.model('Team').find({}, 'name');
+        const teams = await mongoose.model('Team').find({}, 'name logo');
         console.log("Teams fetched for login:", teams.length);
         res.json(teams);
     } catch (err) {
