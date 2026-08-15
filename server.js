@@ -33,7 +33,7 @@ const apiInstance = new SibApiV3Sdk.TransactionalEmailsApi();
 const PlayerSchema = new mongoose.Schema({
     name: { type: String, required: true },
     nickname: String,
-    image: String,
+    backgroundImage: String,
     teamName: String,
     teamLogo: String,
     
