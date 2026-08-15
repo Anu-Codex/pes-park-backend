@@ -833,38 +833,35 @@ app.put('/api/players/:id/captain', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
-// --- IMPORT MARKET VALUE FROM AUCTION DATABASE ---
+// --- UPDATE THIS ROUTE IN server.js ---
 app.get('/api/danger/import-auction-mv', async (req, res) => {
     try {
-        // 1. Get all players from your PES PARK collection
         const pesPlayers = await Player.find();
+        const AuctionCollection = mongoose.connection.db.collection('players');
         let count = 0;
 
-        // 2. Access the Auction site's collection directly
-        // In the code you provided, the model is 'Player', so MongoDB naming is 'players'
-        const AuctionCollection = mongoose.connection.db.collection('players');
-
         for (let p of pesPlayers) {
-            // Find the player in the Auction collection by name
             const auctionPlayer = await AuctionCollection.findOne({ 
                 name: { $regex: new RegExp("^" + p.name + "$", "i") } 
             });
 
             if (auctionPlayer && auctionPlayer.soldTo && auctionPlayer.soldTo !== '-') {
-                // Logic: Extract "50" from "PSG (50M)"
+                // Extract "50" from "PSG (50M)"
                 const priceMatch = auctionPlayer.soldTo.match(/\((\d+)M\)/);
                 const finalPrice = priceMatch ? parseInt(priceMatch[1]) : 0;
 
                 if (finalPrice > 0) {
-                    await Player.findByIdAndUpdate(p._id, { marketValue: finalPrice });
+                    // FIX: Set BOTH Auction Price (Fixed) and Market Value (Starting Point)
+                    await Player.findByIdAndUpdate(p._id, { 
+                        auctionPrice: finalPrice, 
+                        marketValue: finalPrice 
+                    });
                     count++;
                 }
             }
         }
-
-        res.json({ success: true, message: `Updated Market Value for ${count} players from Auction data!` });
+        res.json({ success: true, message: `Synced Auction Price & MV for ${count} players!` });
     } catch (err) {
-        console.error(err);
         res.status(500).json({ error: err.message });
     }
 });
@@ -1128,30 +1125,28 @@ app.put('/api/smart/update-score/:id', async (req, res) => {
 
         // 2. REWARD CALCULATION FUNCTION
         const applyRewards = async (pName, myScore, oppScore) => {
-            if (!pName) return;
+    if (!pName) return;
 
-            let bdrAdd = 0;
-            let mvAdd = 0;
-            let bpAdd = 0;
+    let mvAdd = 0; // Value to add to Market Value
+    let bdrAdd = 0;
 
-            // Rule: Win / Loss / Draw
-            if (myScore > oppScore) { // WIN
-                bdrAdd = 5; mvAdd = 15; bpAdd = 3;
-            } else if (myScore === oppScore) { // DRAW
-                bdrAdd = 1; mvAdd = 0; bpAdd = 1;
-            } else { // LOSS
-                bdrAdd = -3; mvAdd = -10; bpAdd = 0;
-            }
+    // Your logic for Win/Loss/Draw
+    if (myScore > oppScore) { // WIN
+        mvAdd = 15; bdrAdd = 5; 
+    } else if (myScore === oppScore) { // DRAW
+        mvAdd = 5; bdrAdd = 1;
+    } else { // LOSS
+        mvAdd = -10; bdrAdd = -3;
+    }
 
-            // Rule: Goals Scored
-            bdrAdd += (myScore * 1);
-            mvAdd += (myScore * 3);
+    // Add goal bonus to Market Value
+    mvAdd += (myScore * 3);
 
             // A. Update Player Global Stats (BDR & Market Value)
             await Player.findOneAndUpdate(
-                { name: pName },
-                { $inc: { bdrPoints: bdrAdd, marketValue: mvAdd } }
-            );
+        { name: pName },
+        { $inc: { marketValue: mvAdd, bdrPoints: bdrAdd } }
+    );
 
             // B. Update Tournament Ranking (Best Player / Rating)
             await TourRank.findOneAndUpdate(
