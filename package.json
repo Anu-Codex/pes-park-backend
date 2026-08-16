@@ -15,7 +15,8 @@
     "express": "^4.19.2",
     "mongoose": "^8.4.1",
     "sib-api-v3-sdk": "^8.5.0",
-    "socket.io": "^4.7.5"
+    "socket.io": "^4.7.5",
+    "groq-sdk": "^0.6.1"
   },
   "engines": {
     "node": ">=18.0.0"
