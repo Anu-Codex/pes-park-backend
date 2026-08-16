@@ -337,7 +337,27 @@ app.get('/api/teams/players/:teamName', async (req, res) => {
         res.json(players);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
-
+// --- UPTIMEROBOT ISOLATED LOGIC ---
+app.get('/api/external/uptime-audit', async (req, res) => {
+    try {
+        const result = await axios.post('https://api.uptimerobot.com/v2/getMonitors', {
+            api_key: "m803744301-74abc209f3add2b5e0ba9c33", // Isolated key
+            format: "json",
+            custom_uptime_ratios: "1-7-30",
+            response_times: 1
+        });
+        
+        const m = result.data.monitors[0];
+        res.json({
+            status: m.status === 2 ? "OPERATIONAL" : "DISRUPTED",
+            ratios: m.custom_uptime_ratio.split("-"),
+            avgPing: m.average_response_time,
+            lastCheck: new Date().toLocaleTimeString()
+        });
+    } catch (err) {
+        res.status(500).json({ error: "Audit Sync Failed" });
+    }
+});
 // --- 2. LIST A TRADE OFFER ---
 // We update the listing schema logic to include trade details
 app.post('/api/market/list-trade', async (req, res) => {
