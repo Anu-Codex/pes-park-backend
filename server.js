@@ -178,7 +178,42 @@ app.get('/api/teams/profile/:name', async (req, res) => {
         res.status(500).json({ error: "Server Error" });
     }
 });
+const Groq = require('groq-sdk');
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY }); // Add this to your Render Env Vars
 
+app.post('/api/bot/groq-query', async (req, res) => {
+    try {
+        const { message } = req.body;
+
+        // 1. Fetch current DB state to give Groq context
+        const players = await Player.find({}, 'name marketValue bdrPoints teamName matches');
+        
+        // 2. Create a compact string of the database
+        const dbContext = players.map(p => 
+            `[${p.name}: MV=${p.marketValue}M, BDR=${p.bdrPoints}, Team=${p.teamName || 'Free Agent'}]`
+        ).join(', ');
+
+        // 3. Prompt Groq
+        const chatCompletion = await groq.chat.completions.create({
+            messages: [
+                {
+                    role: "system",
+                    content: `You are the Nexus Legends eSports Official Bot. 
+                    Use this real-time database context to answer user questions: ${dbContext}.
+                    Be professional, use eSports terminology, and keep answers concise. 
+                    If asked for advice, base it on MV and BDR points.`
+                },
+                { role: "user", content: message }
+            ],
+            model: "llama3-8b-8192", // Fast and powerful
+        });
+
+        res.json({ reply: chatCompletion.choices[0].message.content });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ reply: "LOG ERROR: AI Neural Link interrupted. Try again." });
+    }
+});
 // --- server.js for pes-park-backend ---
 const axios = require('axios');
 
