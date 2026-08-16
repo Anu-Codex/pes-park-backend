@@ -205,7 +205,7 @@ app.post('/api/bot/groq-query', async (req, res) => {
                 },
                 { role: "user", content: message }
             ],
-            model: "llama3-8b-8192", // Fast and powerful
+            model: "llama-3.1-8b-instant", // Fast and powerful
         });
 
         res.json({ reply: chatCompletion.choices[0].message.content });
