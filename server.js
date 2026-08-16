@@ -1375,10 +1375,19 @@ app.get('/api/smart/sync-all-rewards', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 // --- server.js ---
+// --- UPDATED HOF SCHEMA ---
 const HofSeasonSchema = new mongoose.Schema({
-    seasonName: String,
-    specialHighlights: [{ label: String, value: String }],
-    trophyWinners: [{ title: String, winner: String, runner: String }]
+    seasonName: { type: String, required: true, unique: true },
+    specialHighlights: [{ 
+        label: String, 
+        value: String 
+    }],
+    trophyWinners: [{ 
+        title: String, 
+        winner: String, 
+        runner: String 
+    }],
+    timestamp: { type: Date, default: Date.now }
 });
 const HofSeason = mongoose.model('HofSeason', HofSeasonSchema);
 
