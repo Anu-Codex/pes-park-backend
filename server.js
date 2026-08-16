@@ -214,6 +214,31 @@ app.post('/api/bot/groq-query', async (req, res) => {
         res.status(500).json({ reply: "LOG ERROR: AI Neural Link interrupted. Try again." });
     }
 });
+// --- NEW: SMART TROPHY AWARD ROUTE ---
+app.post('/api/hof/award-smart-trophy', async (req, res) => {
+    try {
+        const { seasonName, trophyType, playerName } = req.body;
+
+        // 1. Increment the count in the Player's profile automatically
+        // trophyType matches the schema: ballonDor, ucl, league, weekly, goldenBoot
+        const updateField = `trophies.${trophyType}`;
+        await Player.findOneAndUpdate(
+            { name: playerName },
+            { $inc: { [updateField]: 1 } }
+        );
+
+        // 2. Add this specific award to the HOF Season record
+        await HofSeason.findOneAndUpdate(
+            { seasonName: seasonName },
+            { $push: { trophyWinners: { title: trophyType.toUpperCase(), winner: playerName } } },
+            { upsert: true }
+        );
+
+        res.json({ success: true, message: `Awarded ${trophyType} to ${playerName}!` });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 // --- server.js for pes-park-backend ---
 const axios = require('axios');
 
