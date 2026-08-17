@@ -1556,16 +1556,34 @@ const LoyaltySchema = new mongoose.Schema({
 app.post('/api/loyalty/apply', async (req, res) => {
     try {
         const { playerName, phoneNumber } = req.body;
+
+        // 1. Check if this phone number is already in our system
+        const existingApp = await LoyaltyCard.findOne({ phoneNumber });
+
+        if (existingApp) {
+            return res.status(200).json({ 
+                success: true, 
+                alreadyExists: true,
+                applicationId: existingApp.applicationId,
+                message: "This number is already registered. Here is your ID." 
+            });
+        }
+
+        // 2. If it's a new number, generate ID and save
         const appId = 'NEX-' + Math.floor(100000 + Math.random() * 900000);
-        
         const application = new LoyaltyCard({ 
             applicationId: appId,
             playerName, 
             phoneNumber 
         });
+
         await application.save();
         res.json({ success: true, applicationId: appId });
-    } catch (err) { res.status(500).json({ error: "Phone number already registered." }); }
+
+    } catch (err) {
+        console.error("Loyalty Error:", err);
+        res.status(500).json({ error: "System Error. Please try later." });
+    }
 });
 
 // 2. Search Application Status
