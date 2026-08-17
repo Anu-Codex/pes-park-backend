@@ -1549,7 +1549,7 @@ const LoyaltySchema = new mongoose.Schema({
     issueDate: { type: Date },
     expiryDate: { type: Date }
 });
-
+const LoyaltyCard = mongoose.model('LoyaltyCard', LoyaltySchema);
 // --- UPDATED ROUTES ---
 
 // 1. Application with auto-generated ID
