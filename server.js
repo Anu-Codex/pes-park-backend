@@ -150,7 +150,26 @@ app.get('/api/v2/dressing-room/:teamName', async (req, res) => {
 // 1. Add to Player Schema (if not already there)
 // isOnTransferList: { type: Boolean, default: false },
 // transferPrice: { type: Number, default: 0 }
+// --- NEW: AI SCOUTING REPORT ENDPOINT ---
+app.post('/api/bot/scout-player', async (req, res) => {
+    try {
+        const { name, attributes, marketValue, bdrPoints } = req.body;
+        
+        const prompt = `Generate a high-end eSports tactical scouting report for a player named ${name}. 
+        Stats: Market Value: ${marketValue}M, BDR: ${bdrPoints}. 
+        Attributes: Consistency: ${attributes.consistency}, Big Match: ${attributes.bigMatch}, Scoring: ${attributes.scoring}, Playmaking: ${attributes.playmaking}, Defense: ${attributes.defense}, Mental: ${attributes.mental}.
+        Keep it to 2-3 professional sentences. Use aggressive eSports terminology like 'clutch factor', 'tactical asset', or 'defensive anchor'.`;
 
+        const chatCompletion = await groq.chat.completions.create({
+            messages: [{ role: "user", content: prompt }],
+            model: "llama-3.1-8b-instant",
+        });
+
+        res.json({ report: chatCompletion.choices[0].message.content });
+    } catch (err) {
+        res.status(500).json({ report: "Unable to generate tactical dossier at this time." });
+    }
+});
 // 2. Captain Login Route
 // --- CAPTAIN LOGIN (USING AUCTION DB CREDENTIALS) ---
 // --- GET ALL TEAMS FOR LOGIN DROPDOWN ---
