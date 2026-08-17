@@ -1537,6 +1537,113 @@ app.post('/api/teams/create', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+// --- UPDATED LOYALTY SCHEMA ---
+const LoyaltySchema = new mongoose.Schema({
+    applicationId: { type: String, unique: true }, // e.g., NEX-123456
+    playerName: String,
+    phoneNumber: String,
+    cardNumber: { type: String, default: "PENDING" },
+    tier: { type: String, default: 'NONE' },
+    barcodeData: { type: String, default: "" },
+    status: { type: String, default: 'Pending' }, // Pending, Approved, Expired
+    issueDate: { type: Date },
+    expiryDate: { type: Date }
+});
+
+// --- UPDATED ROUTES ---
+
+// 1. Application with auto-generated ID
+app.post('/api/loyalty/apply', async (req, res) => {
+    try {
+        const { playerName, phoneNumber } = req.body;
+        const appId = 'NEX-' + Math.floor(100000 + Math.random() * 900000);
+        
+        const application = new LoyaltyCard({ 
+            applicationId: appId,
+            playerName, 
+            phoneNumber 
+        });
+        await application.save();
+        res.json({ success: true, applicationId: appId });
+    } catch (err) { res.status(500).json({ error: "Phone number already registered." }); }
+});
+
+// 2. Search Application Status
+app.get('/api/loyalty/status/:appId', async (req, res) => {
+    const card = await LoyaltyCard.findOne({ applicationId: req.params.appId });
+    if (!card) return res.status(404).json({ error: "Application ID not found." });
+    
+    // Auto-check for expiry
+    if (card.status === 'Approved' && new Date() > new Date(card.expiryDate)) {
+        card.status = 'Expired';
+        await card.save();
+    }
+    res.json(card);
+});
+
+// 2. Admin Approves and Assigns Tier
+app.put('/api/loyalty/approve/:id', async (req, res) => {
+    try {
+        const { tier } = req.body;
+        const cardNumber = Array.from({length: 4}, () => Math.floor(1000 + Math.random() * 9000)).join('-');
+        const barcodeData = `NXS-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
+        
+        const update = {
+            tier,
+            cardNumber,
+            barcodeData,
+            status: 'Approved',
+            issueDate: new Date(),
+            expiryDate: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000) // 2 Months
+        };
+
+        await LoyaltyCard.findByIdAndUpdate(req.params.id, update);
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+// --- ROUTES ---
+
+// 1. Register Card
+app.post('/api/loyalty/register', async (req, res) => {
+    try {
+        const { playerName, tier } = req.body;
+        
+        // Generate 16 digit number: XXXX-XXXX-XXXX-XXXX
+        const cardNumber = Array.from({length: 4}, () => Math.floor(1000 + Math.random() * 9000)).join('-');
+        const barcodeData = `NXS-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
+        
+        const card = new LoyaltyCard({
+            playerName,
+            cardNumber,
+            tier,
+            barcodeData,
+            expiryDate: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000) // 2 Months
+        });
+        
+        await card.save();
+        res.json({ success: true, card });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// 2. Validate Barcode (For Scanner)
+app.get('/api/loyalty/validate/:barcode', async (req, res) => {
+    const card = await LoyaltyCard.findOne({ barcodeData: req.params.barcode });
+    if (!card) return res.status(404).json({ message: "Invalid Card" });
+    
+    const isExpired = new Date() > new Date(card.expiryDate);
+    res.json({ 
+        valid: !isExpired, 
+        card, 
+        message: isExpired ? "CARD EXPIRED: Please Renew" : "ACCESS GRANTED" 
+    });
+});
+
+// 3. Renew Card
+app.put('/api/loyalty/renew/:id', async (req, res) => {
+    const newExpiry = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000);
+    await LoyaltyCard.findByIdAndUpdate(req.params.id, { expiryDate: newExpiry, status: 'Active' });
+    res.json({ success: true, newExpiry });
+});
 
 
 const PORT = process.env.PORT || 5000;
