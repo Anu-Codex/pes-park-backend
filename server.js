@@ -170,6 +170,43 @@ app.post('/api/bot/scout-player', async (req, res) => {
         res.status(500).json({ report: "Unable to generate tactical dossier at this time." });
     }
 });
+// --- IMPROVED TEAM & LOGO SYNC ---
+app.get('/api/danger/import-team-data', async (req, res) => {
+    try {
+        const pesPlayers = await Player.find();
+        const AuctionPlayers = mongoose.connection.db.collection('players');
+        const AuctionTeams = mongoose.connection.db.collection('teams');
+        let count = 0;
+
+        for (let p of pesPlayers) {
+            // Find player in Auction DB (Case Insensitive)
+            const aPlayer = await AuctionPlayers.findOne({ 
+                name: { $regex: new RegExp("^" + p.name + "$", "i") } 
+            });
+
+            if (aPlayer && aPlayer.soldTo && aPlayer.soldTo !== '-' && aPlayer.soldTo !== 'UNSOLD') {
+                // 1. Extract Team Name (e.g., "Manchester City (200M)" -> "Manchester City")
+                const teamName = aPlayer.soldTo.split(' (')[0].trim();
+                
+                // 2. Fetch Logo for this team from the auction 'teams' collection
+                const teamInfo = await AuctionTeams.findOne({ name: teamName });
+                
+                // Check multiple possible fields for logo
+                const teamLogo = teamInfo ? (teamInfo.logoUrl || teamInfo.logo || "") : "";
+
+                // 3. Update the Player in your main database
+                await Player.findByIdAndUpdate(p._id, { 
+                    teamName: teamName,
+                    teamLogo: teamLogo 
+                });
+                count++;
+            }
+        }
+        res.json({ success: true, message: `Successfully synchronized ${count} players with their Official Clubs and Logos!` });
+    } catch (err) { 
+        res.status(500).json({ error: err.message }); 
+    }
+});
 // 2. Captain Login Route
 // --- CAPTAIN LOGIN (USING AUCTION DB CREDENTIALS) ---
 // --- GET ALL TEAMS FOR LOGIN DROPDOWN ---
