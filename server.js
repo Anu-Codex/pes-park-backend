@@ -52,6 +52,14 @@ const PlayerSchema = new mongoose.Schema({
         result: String, // WIN, LOSS, DRAW
         date: { type: Date, default: Date.now } // Store as actual Date for sorting
     }],
+    attributes: {
+        consistency: { type: Number, default: 50 },
+        bigMatch: { type: Number, default: 50 },
+        scoring: { type: Number, default: 50 },
+        playmaking: { type: Number, default: 50 },
+        defense: { type: Number, default: 50 },
+        mental: { type: Number, default: 50 }
+    },
 
     // Season Summary (Manual totals)
     seasonStats: {
