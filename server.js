@@ -1654,11 +1654,21 @@ app.put('/api/loyalty/renew/:id', async (req, res) => {
     await LoyaltyCard.findByIdAndUpdate(req.params.id, { expiryDate: newExpiry, status: 'Active' });
     res.json({ success: true, newExpiry });
 });
-// --- DANGER: WIPE GLOBAL MATCH HISTORY ---
+// --- MASTER WIPE: CLEARS ALL VISIBLE HISTORY ---
 app.put('/api/danger/wipe-match-history', async (req, res) => {
     try {
-        // 1. Clear the matches array for every player
-        // 2. Reset the manual season stats to 0
+        // 1. Delete all match records (This clears Player.html and Fixture lists)
+        await Fixture.deleteMany({});
+        await AuctionFixture.deleteMany({});
+        await SoloFixture.deleteMany({});
+
+        // 2. Delete all points table data (This clears Index.html Points Table)
+        await Standing.deleteMany({});
+
+        // 3. Delete all Golden Boot/Rank data (This clears the Boot list)
+        await TourRank.deleteMany({});
+
+        // 4. Clear the internal arrays in Player documents
         await Player.updateMany({}, { 
             $set: { 
                 matches: [],
@@ -1669,9 +1679,9 @@ app.put('/api/danger/wipe-match-history', async (req, res) => {
             } 
         });
 
-        res.json({ success: true, message: "All player match histories and season stats have been wiped." });
+        res.json({ success: true, message: "History Wiped: Index, Player profiles, and Tables are now fresh." });
     } catch (err) {
-        res.status(500).json({ error: "Failed to wipe history: " + err.message });
+        res.status(500).json({ error: "Failed to execute Master Wipe: " + err.message });
     }
 });
 
