@@ -1288,57 +1288,34 @@ app.put('/api/smart/update-score/:id', async (req, res) => {
         await fixture.save();
 
         // 2. REWARD CALCULATION FUNCTION
-        const applyRewards = async (pName, myScore, oppScore) => {
+        const applyRewards = async (pName, myScore, oppScore, tourType) => {
     if (!pName) return;
 
-    let mvAdd = 0; // Value to add to Market Value
-    let bdrAdd = 0;
+    // RULE 1: Only award BDR/Market Value in Solo Challenges (Player vs Player)
+    if (tourType === 'solo') {
+        let mvAdd = (myScore > oppScore) ? 15 : (myScore === oppScore ? 5 : -10);
+        let bdrAdd = (myScore > oppScore) ? 5 : (myScore === oppScore ? 1 : -3);
+        mvAdd += (myScore * 3);
 
-    // Your logic for Win/Loss/Draw
-    if (myScore > oppScore) { // WIN
-        mvAdd = 15; bdrAdd = 5; 
-    } else if (myScore === oppScore) { // DRAW
-        mvAdd = 5; bdrAdd = 1;
-    } else { // LOSS
-        mvAdd = -10; bdrAdd = -3;
+        await Player.findOneAndUpdate(
+            { name: pName },
+            { $inc: { marketValue: mvAdd, bdrPoints: bdrAdd } }
+        );
     }
 
-    // Add goal bonus to Market Value
-    mvAdd += (myScore * 3);
-
-            // A. Update Player Global Stats (BDR & Market Value)
-            await Player.findOneAndUpdate(
-        { name: pName },
-        { $inc: { marketValue: mvAdd, bdrPoints: bdrAdd } }
+    // RULE 2: Point Table (Standing) updates for BOTH Solo and Auction
+    const pts = (myScore > oppScore) ? 3 : (myScore === oppScore ? 1 : 0);
+    await Standing.findOneAndUpdate(
+        { tourId: fixture.tourId, participant: pName },
+        { $inc: { 
+            played: 1, 
+            wins: myScore > oppScore ? 1 : 0, 
+            draws: myScore === oppScore ? 1 : 0, 
+            losses: myScore < oppScore ? 1 : 0, 
+            gf: myScore, ga: oppScore, points: pts 
+        }}
     );
-
-            // B. Update Tournament Ranking (Best Player / Rating)
-            await TourRank.findOneAndUpdate(
-                { tour: tourType, category: "best", playerName: pName },
-                { $inc: { totalValue: bpAdd } },
-                { upsert: true }
-            );
-
-            // C. Update Tournament Ranking (Golden Boot / Goals)
-            await TourRank.findOneAndUpdate(
-                { tour: tourType, category: "boot", playerName: pName },
-                { $inc: { totalValue: myScore } },
-                { upsert: true }
-            );
-
-            // D. Update Points Table (Standings)
-            const pts = (myScore > oppScore) ? 3 : (myScore === oppScore ? 1 : 0);
-            await Standing.findOneAndUpdate(
-                { tourId: fixture.tourId, participant: pName },
-                { $inc: { 
-                    played: 1, 
-                    wins: myScore > oppScore ? 1 : 0, 
-                    draws: myScore === oppScore ? 1 : 0, 
-                    losses: myScore < oppScore ? 1 : 0, 
-                    gf: myScore, ga: oppScore, points: pts 
-                }}
-            );
-        };
+};
 
         // Apply to both players
         await applyRewards(fixture.playerA, scoreA, scoreB);
