@@ -1654,6 +1654,26 @@ app.put('/api/loyalty/renew/:id', async (req, res) => {
     await LoyaltyCard.findByIdAndUpdate(req.params.id, { expiryDate: newExpiry, status: 'Active' });
     res.json({ success: true, newExpiry });
 });
+// --- DANGER: WIPE GLOBAL MATCH HISTORY ---
+app.put('/api/danger/wipe-match-history', async (req, res) => {
+    try {
+        // 1. Clear the matches array for every player
+        // 2. Reset the manual season stats to 0
+        await Player.updateMany({}, { 
+            $set: { 
+                matches: [],
+                "seasonStats.wins": 0,
+                "seasonStats.draws": 0,
+                "seasonStats.losses": 0,
+                "seasonStats.goals": 0
+            } 
+        });
+
+        res.json({ success: true, message: "All player match histories and season stats have been wiped." });
+    } catch (err) {
+        res.status(500).json({ error: "Failed to wipe history: " + err.message });
+    }
+});
 
 
 const PORT = process.env.PORT || 5000;
