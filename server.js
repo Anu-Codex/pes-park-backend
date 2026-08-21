@@ -1302,14 +1302,17 @@ app.put('/api/smart/update-score/:id', async (req, res) => {
     if (!pName) return;
 
     // RULE 1: Only award BDR/Market Value in Solo Challenges (Player vs Player)
-    if (tourType === 'solo') {
+    if (tourType === 'solo' && isPlayer) {
+        // Update Individual Global Stats
         let mvAdd = (myScore > oppScore) ? 15 : (myScore === oppScore ? 5 : -10);
         let bdrAdd = (myScore > oppScore) ? 5 : (myScore === oppScore ? 1 : -3);
         mvAdd += (myScore * 3);
 
-        await Player.findOneAndUpdate(
-            { name: pName },
-            { $inc: { marketValue: mvAdd, bdrPoints: bdrAdd } }
+        await Player.findOneAndUpdate({ name: pName }, { $inc: { marketValue: mvAdd, bdrPoints: bdrAdd } });
+        await TourRank.findOneAndUpdate(
+            { tour: 'solo', category: "boot", playerName: pName },
+            { $inc: { totalValue: myScore }, $set: { teamName: isPlayer.teamName || "Free Agent" } },
+            { upsert: true }
         );
     }
 
