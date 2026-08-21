@@ -1208,12 +1208,22 @@ app.get('/api/smart/participants/:tourId', async (req, res) => {
     } catch (err) { res.status(500).json(err); }
 });
 
-// 3. Get Standings for a specific tour
+// --- FIXED STANDINGS ROUTE ---
 app.get('/api/smart/standings/:tourId', async (req, res) => {
     try {
-        const data = await Standing.find({ tourId: req.params.tourId });
+        const { tourId } = req.params;
+
+        // Validation: If ID is "undefined" or not a valid MongoDB ID, return empty array
+        if (!mongoose.Types.ObjectId.isValid(tourId)) {
+            return res.json([]); 
+        }
+
+        const data = await Standing.find({ tourId: tourId });
         res.json(data);
-    } catch (err) { res.status(500).json(err); }
+    } catch (err) {
+        console.error("Standings DB Error:", err);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
 });
 // Register a player from the global DB into a specific tournament
 app.put('/api/smart/register-player', async (req, res) => {
