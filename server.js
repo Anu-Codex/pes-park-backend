@@ -7,6 +7,7 @@ const cors = require('cors');
 const SibApiV3Sdk = require('sib-api-v3-sdk');
 const bcrypt = require('bcryptjs');
 
+
 const app = express();
 
 // 1. ADD THIS: Allow your website to talk to the server
@@ -242,40 +243,41 @@ app.get('/api/teams/profile/:name', async (req, res) => {
         res.status(500).json({ error: "Server Error" });
     }
 });
-const Groq = require('groq-sdk');
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY }); // Add this to your Render Env Vars
+const MistralClient = require('@mistralai/mistralai').default;
+const mistral = new MistralClient(process.env.MISTRAL_API_KEY);
 
-app.post('/api/bot/groq-query', async (req, res) => {
+app.post('/api/bot/groq-query', async (req, res) => { // Kept name same so frontend doesn't break
     try {
         const { message } = req.body;
 
-        // 1. Fetch current DB state to give Groq context
-        const players = await Player.find({}, 'name marketValue bdrPoints teamName matches');
+        // 1. Fetch Real-time Database state
+        const players = await Player.find({}, 'name marketValue bdrPoints teamName');
         
-        // 2. Create a compact string of the database
+        // 2. Create a high-density data string for Mistral
         const dbContext = players.map(p => 
-            `[${p.name}: MV=${p.marketValue}M, BDR=${p.bdrPoints}, Team=${p.teamName || 'Free Agent'}]`
-        ).join(', ');
+            `${p.name}(MV:${p.marketValue}M,BDR:${p.bdrPoints},Team:${p.teamName || 'Free Agent'})`
+        ).join(' | ');
 
-        // 3. Prompt Groq
-        const chatCompletion = await groq.chat.completions.create({
+        // 3. Mistral Chat Completion
+        const chatResponse = await mistral.chat({
+            model: 'mistral-tiny', // 'tiny' is the fastest for chat support
             messages: [
                 {
-                    role: "system",
-                    content: `You are the Nexus Legends eSports Official Bot. 
-                    Use this real-time database context to answer user questions: ${dbContext}.
-                    Be professional, use eSports terminology, and keep answers concise. 
-                    If asked for advice, base it on MV and BDR points.`
+                    role: 'system',
+                    content: `You are the Nexus Legends eSports Support Bot. 
+                    DATABASE_ARCHIVE: ${dbContext}. 
+                    INSTRUCTIONS: Use the archive to answer stats questions. Be elite, professional, and concise. 
+                    If data isn't in the archive, say it's not in the Nexus records.`
                 },
-                { role: "user", content: message }
+                { role: 'user', content: message }
             ],
-            model: "llama-3.1-8b-instant", // Fast and powerful
+            config: { safeMode: true }
         });
 
-        res.json({ reply: chatCompletion.choices[0].message.content });
+        res.json({ reply: chatResponse.choices[0].message.content });
     } catch (err) {
-        console.error(err);
-        res.status(500).json({ reply: "LOG ERROR: AI Neural Link interrupted. Try again." });
+        console.error("Mistral Error:", err);
+        res.status(500).json({ reply: "NEURAL LINK FAILURE: System reboot required." });
     }
 });
 // --- NEW: SMART TROPHY AWARD ROUTE ---
