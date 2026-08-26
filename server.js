@@ -111,6 +111,16 @@ app.put('/api/players/:id', async (req, res) => {
         res.status(500).json({ success: false, error: err.message });
     }
 });
+// --- FETCH SINGLE TOURNAMENT DATA ---
+app.get('/api/smart/tournament-details/:id', async (req, res) => {
+    try {
+        const tour = await Tournament.findById(req.params.id);
+        if (!tour) return res.status(404).json({ error: "Tournament not found" });
+        res.json(tour);
+    } catch (err) {
+        res.status(500).json({ error: "Invalid ID" });
+    }
+});
 // NEW: Optimized "All-in-One" Dressing Room Data
 app.get('/api/v2/dressing-room/:teamName', async (req, res) => {
     try {
