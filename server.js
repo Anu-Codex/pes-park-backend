@@ -1694,6 +1694,47 @@ app.put('/api/danger/wipe-match-history', async (req, res) => {
         res.status(500).json({ error: "Failed to execute Master Wipe: " + err.message });
     }
 });
+app.get('/api/smart/recalculate-table/:tourId', async (req, res) => {
+    try {
+        const { tourId } = req.params;
+
+        // 1. Get Tournament to find all participants
+        const tour = await mongoose.model('Tournament').findById(tourId);
+        if (!tour) return res.status(404).json({ error: "Tour not found" });
+
+        // 2. Clear old standings for this tour
+        await mongoose.model('Standing').deleteMany({ tourId });
+
+        // 3. Create fresh empty entries for ALL participants
+        const initialStandings = tour.participants.map(p => ({
+            tourId, participant: p, played: 0, wins: 0, draws: 0, losses: 0, gf: 0, ga: 0, points: 0
+        }));
+        await mongoose.model('Standing').insertMany(initialStandings);
+
+        // 4. Get all COMPLETED matches
+        const matches = await mongoose.model('Fixture').find({ tourId, status: "Completed" });
+
+        for (let m of matches) {
+            const updateStats = async (name, myS, oppS) => {
+                let w = myS > oppS ? 1 : 0;
+                let d = myS === oppS ? 1 : 0;
+                let l = myS < oppS ? 1 : 0;
+                let pts = (myS > oppS) ? 3 : (myS === oppS ? 1 : 0);
+
+                await mongoose.model('Standing').findOneAndUpdate(
+                    { tourId, participant: name },
+                    { $inc: { played: 1, wins: w, draws: d, losses: l, gf: myS, ga: oppS, points: pts } }
+                );
+            };
+            await updateStats(m.playerA, m.scoreA, m.scoreB);
+            await updateStats(m.playerB, m.scoreB, m.scoreA);
+        }
+
+        res.json({ success: true, message: "Table rebuilt successfully!" });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 
 
 const PORT = process.env.PORT || 5000;
