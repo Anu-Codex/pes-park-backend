@@ -1754,6 +1754,38 @@ app.delete('/api/smart/delete-tour/:id', async (req, res) => {
         res.status(500).json({ error: "Failed to delete tournament." });
     }
 });
+// 1. GET Team Members (for dropdowns)
+app.get('/api/teams/members/:teamName', async (req, res) => {
+    try {
+        const players = await Player.find({ teamName: req.params.teamName }, 'name');
+        res.json(players);
+    } catch (err) { res.status(500).json(err); }
+});
+
+// 2. CREATE Sub-Fixture
+app.post('/api/smart/create-sub-fixture', async (req, res) => {
+    try {
+        const { tourId, parentFixtureId, playerA, playerB } = req.body;
+        const subFix = new Fixture({
+            tourId,
+            isSubFixture: true,
+            parentFixtureId,
+            playerA, // This is the actual human player name
+            playerB, // This is the actual human player name
+            status: "Upcoming"
+        });
+        await subFix.save();
+        res.json({ success: true });
+    } catch (err) { res.status(500).json(err); }
+});
+
+// 3. FETCH Sub-Fixtures for index page
+app.get('/api/smart/sub-fixtures/:parentId', async (req, res) => {
+    try {
+        const subs = await Fixture.find({ parentFixtureId: req.params.parentId });
+        res.json(subs);
+    } catch (err) { res.status(500).json(err); }
+});
 
 
 const PORT = process.env.PORT || 5000;
