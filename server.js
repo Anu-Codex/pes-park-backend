@@ -1735,6 +1735,25 @@ app.get('/api/smart/recalculate-table/:tourId', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+// --- DELETE SPECIFIC TOURNAMENT & ALL RELATED DATA ---
+app.delete('/api/smart/delete-tour/:id', async (req, res) => {
+    try {
+        const tourId = req.params.id;
+
+        // 1. Delete the Tournament record
+        await Tournament.findByIdAndDelete(tourId);
+
+        // 2. Delete all Fixtures linked to this tour
+        await Fixture.deleteMany({ tourId: tourId });
+
+        // 3. Delete all Standings linked to this tour
+        await Standing.deleteMany({ tourId: tourId });
+
+        res.json({ success: true, message: "Tournament and all related data purged." });
+    } catch (err) {
+        res.status(500).json({ error: "Failed to delete tournament." });
+    }
+});
 
 
 const PORT = process.env.PORT || 5000;
