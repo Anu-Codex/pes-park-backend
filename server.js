@@ -1874,46 +1874,51 @@ app.get('/api/admin/telemetry', async (req, res) => {
         res.status(500).json({ success: false, error: err.message });
     }
 });
-// --- FINAL LOGO REPAIR FIX ---
+// --- FINAL DATA SYNC FIX ---
 app.get('/api/admin/fix-logos', async (req, res) => {
     try {
-        // 1. Get all players who have a team name assigned
+        // 1. Access the specific 'teams' collection from your Auction Database
+        // We use .collection() to avoid schema conflicts
+        const AuctionTeams = mongoose.connection.db.collection('teams');
+        
+        // 2. Get all players who have a team assigned
         const players = await Player.find({ teamName: { $exists: true, $ne: "" } });
+        
         let count = 0;
         let logs = [];
 
         for (let p of players) {
-            // Remove "(50M)" etc from the name
+            // Clean the name (Removes prices like "(200M)" and trims spaces)
             const cleanTeamName = p.teamName.split(' (')[0].trim();
 
-            // 2. Find the team in the 'teams' collection
-            const teamInfo = await Team.findOne({ 
-                name: { $regex: new RegExp('^' + cleanTeamName + '$', 'i') } 
+            // 3. Find the team using Case-Insensitive matching
+            // This matches "man city" or "MAN CITY" to "MAN. CITY" correctly
+            const teamInfo = await AuctionTeams.findOne({ 
+                name: { $regex: new RegExp('^' + cleanTeamName.replace('.', '\\.') + '$', 'i') } 
             });
 
             if (teamInfo) {
-                // UPDATE: Looking specifically for the 'teamLogo' field you found
-                const logoToUse = teamInfo.logoUrl;
-                
-                if (logoToUse) {
+                // 4. MAP 'logoUrl' from your screenshot to 'teamLogo' in your Player DB
+                if (teamInfo.logoUrl) {
                     await Player.findByIdAndUpdate(p._id, { 
-                        logoUrl: logoToUse 
+                        teamLogo: teamInfo.logoUrl 
                     });
                     count++;
                 } else {
-                    logs.push(`Team "${teamInfo.name}" found for ${p.name}, but 'teamLogo' field was empty in the Teams collection.`);
+                    logs.push(`Team "${cleanTeamName}" found, but 'logoUrl' field is empty in DB.`);
                 }
             } else {
-                logs.push(`No team document found matching "${cleanTeamName}" for player ${p.name}`);
+                logs.push(`Could not find team matching: "${cleanTeamName}"`);
             }
         }
 
         res.json({ 
             success: true, 
-            message: `SUCCESS: Updated logos for ${count} players!`,
+            message: `SYNC COMPLETE: Updated ${count} players with official logos!`,
             details: logs 
         });
     } catch (err) {
+        console.error("Sync Crash:", err);
         res.status(500).json({ error: err.message });
     }
 });
