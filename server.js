@@ -1874,21 +1874,47 @@ app.get('/api/admin/telemetry', async (req, res) => {
         res.status(500).json({ success: false, error: err.message });
     }
 });
-// --- RUN THIS ONCE TO FIX EXISTING LOGOS ---
+// --- SMART LOGO REPAIR ---
 app.get('/api/admin/fix-logos', async (req, res) => {
     try {
+        // 1. Get all players who have a team assigned
         const players = await Player.find({ teamName: { $exists: true, $ne: "" } });
         let count = 0;
+        let logs = [];
 
         for (let p of players) {
-            // Find the official team info
-            const teamInfo = await Team.findOne({ name: p.teamName });
-            if (teamInfo && teamInfo.logo) {
-                await Player.findByIdAndUpdate(p._id, { teamLogo: teamInfo.logo });
-                count++;
+            // Clean the name: Remove "(50M)" and trim spaces
+            // "PSG (50M)" becomes "PSG"
+            const cleanTeamName = p.teamName.split(' (')[0].trim();
+
+            // 2. Find the team using Case-Insensitive Regex
+            const teamInfo = await Team.findOne({ 
+                name: { $regex: new RegExp('^' + cleanTeamName + '$', 'i') } 
+            });
+
+            if (teamInfo) {
+                // Check if logo is in 'logo' or 'logoUrl' field
+                const actualLogo = teamInfo.logo || teamInfo.logoUrl;
+                
+                if (actualLogo) {
+                    await Player.findByIdAndUpdate(p._id, { 
+                        teamLogo: actualLogo,
+                        teamName: teamInfo.name // Sync the name perfectly too
+                    });
+                    count++;
+                } else {
+                    logs.push(`Team found for ${p.name}, but logo field was empty.`);
+                }
+            } else {
+                logs.push(`Could not find team matching: "${cleanTeamName}" for player ${p.name}`);
             }
         }
-        res.json({ success: true, message: `Fixed logos for ${count} players!` });
+
+        res.json({ 
+            success: true, 
+            message: `Fixed logos for ${count} players!`,
+            details: logs // This helps you see why some failed
+        });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
