@@ -1897,7 +1897,7 @@ app.get('/api/admin/fix-logos', async (req, res) => {
                 
                 if (logoToUse) {
                     await Player.findByIdAndUpdate(p._id, { 
-                        teamLogo: logoToUse 
+                        logoUrl: logoToUse 
                     });
                     count++;
                 } else {
