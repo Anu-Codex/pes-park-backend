@@ -562,9 +562,23 @@ const Stats = mongoose.model('Stats', StatsSchema);
 // Players API
 app.get('/api/players', async (req, res) => res.json(await Player.find()));
 app.post('/api/players', async (req, res) => {
-    const newPlayer = new Player(req.body);
-    await newPlayer.save();
-    res.json({ success: true });
+    try {
+        const playerData = req.body;
+
+        // If a team is assigned, find that team's logo
+        if (playerData.teamName) {
+            const team = await mongoose.model('Team').findOne({ name: playerData.teamName });
+            if (team) {
+                playerData.teamLogo = team.logo; // Auto-assign logo from Team collection
+            }
+        }
+
+        const newPlayer = new Player(playerData);
+        await newPlayer.save();
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 app.delete('/api/players/:id', async (req, res) => {
     await Player.findByIdAndDelete(req.params.id);
