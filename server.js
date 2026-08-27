@@ -1874,6 +1874,25 @@ app.get('/api/admin/telemetry', async (req, res) => {
         res.status(500).json({ success: false, error: err.message });
     }
 });
+// --- RUN THIS ONCE TO FIX EXISTING LOGOS ---
+app.get('/api/admin/fix-logos', async (req, res) => {
+    try {
+        const players = await Player.find({ teamName: { $exists: true, $ne: "" } });
+        let count = 0;
+
+        for (let p of players) {
+            // Find the official team info
+            const teamInfo = await Team.findOne({ name: p.teamName });
+            if (teamInfo && teamInfo.logo) {
+                await Player.findByIdAndUpdate(p._id, { teamLogo: teamInfo.logo });
+                count++;
+            }
+        }
+        res.json({ success: true, message: `Fixed logos for ${count} players!` });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Admin Server running on ${PORT}`));
