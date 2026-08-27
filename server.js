@@ -1874,46 +1874,44 @@ app.get('/api/admin/telemetry', async (req, res) => {
         res.status(500).json({ success: false, error: err.message });
     }
 });
-// --- SMART LOGO REPAIR ---
+// --- FINAL LOGO REPAIR FIX ---
 app.get('/api/admin/fix-logos', async (req, res) => {
     try {
-        // 1. Get all players who have a team assigned
+        // 1. Get all players who have a team name assigned
         const players = await Player.find({ teamName: { $exists: true, $ne: "" } });
         let count = 0;
         let logs = [];
 
         for (let p of players) {
-            // Clean the name: Remove "(50M)" and trim spaces
-            // "PSG (50M)" becomes "PSG"
+            // Remove "(50M)" etc from the name
             const cleanTeamName = p.teamName.split(' (')[0].trim();
 
-            // 2. Find the team using Case-Insensitive Regex
+            // 2. Find the team in the 'teams' collection
             const teamInfo = await Team.findOne({ 
                 name: { $regex: new RegExp('^' + cleanTeamName + '$', 'i') } 
             });
 
             if (teamInfo) {
-                // Check if logo is in 'logo' or 'logoUrl' field
-                const actualLogo = teamInfo.logo || teamInfo.logoUrl;
+                // UPDATE: Looking specifically for the 'teamLogo' field you found
+                const logoToUse = teamInfo.teamLogo || teamInfo.logoUrl || teamInfo.logo;
                 
-                if (actualLogo) {
+                if (logoToUse) {
                     await Player.findByIdAndUpdate(p._id, { 
-                        teamLogo: actualLogo,
-                        teamName: teamInfo.name // Sync the name perfectly too
+                        teamLogo: logoToUse 
                     });
                     count++;
                 } else {
-                    logs.push(`Team found for ${p.name}, but logo field was empty.`);
+                    logs.push(`Team "${teamInfo.name}" found for ${p.name}, but 'teamLogo' field was empty in the Teams collection.`);
                 }
             } else {
-                logs.push(`Could not find team matching: "${cleanTeamName}" for player ${p.name}`);
+                logs.push(`No team document found matching "${cleanTeamName}" for player ${p.name}`);
             }
         }
 
         res.json({ 
             success: true, 
-            message: `Fixed logos for ${count} players!`,
-            details: logs // This helps you see why some failed
+            message: `SUCCESS: Updated logos for ${count} players!`,
+            details: logs 
         });
     } catch (err) {
         res.status(500).json({ error: err.message });
