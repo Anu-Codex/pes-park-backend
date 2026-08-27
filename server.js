@@ -899,6 +899,8 @@ const fixtureSchema = new mongoose.Schema({
     scoreB: { type: Number, default: 0 },
     status: { type: String, default: "Upcoming" },
     stage: String,
+    isSubFixture: { type: Boolean, default: false }, // <--- ADD THIS
+    parentFixtureId: { type: String, default: null },
     createdAt: { type: Date, default: Date.now }
 });
 
@@ -1768,10 +1770,10 @@ app.post('/api/smart/create-sub-fixture', async (req, res) => {
         const { tourId, parentFixtureId, playerA, playerB } = req.body;
         const subFix = new Fixture({
             tourId,
-            isSubFixture: true,
+            isSubFixture: true, // <--- MAKE SURE THIS LINE EXISTS
             parentFixtureId,
-            playerA, // This is the actual human player name
-            playerB, // This is the actual human player name
+            playerA,
+            playerB,
             status: "Upcoming"
         });
         await subFix.save();
