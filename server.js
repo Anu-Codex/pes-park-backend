@@ -1786,6 +1786,22 @@ app.get('/api/smart/sub-fixtures/:parentId', async (req, res) => {
         res.json(subs);
     } catch (err) { res.status(500).json(err); }
 });
+// --- SMART CAPTAIN ASSIGNMENT ---
+app.put('/api/teams/assign-captain', async (req, res) => {
+    try {
+        const { playerId, teamName } = req.body;
+
+        // 1. Remove captain status from EVERYONE in this team
+        await Player.updateMany({ teamName: teamName }, { $set: { isCaptain: false } });
+
+        // 2. Assign the new captain
+        await Player.findByIdAndUpdate(playerId, { $set: { isCaptain: true } });
+
+        res.json({ success: true, message: "New Captain Commissioned." });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 
 
 const PORT = process.env.PORT || 5000;
