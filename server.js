@@ -1893,7 +1893,7 @@ app.get('/api/admin/fix-logos', async (req, res) => {
 
             if (teamInfo) {
                 // UPDATE: Looking specifically for the 'teamLogo' field you found
-                const logoToUse = teamInfo.teamLogo || teamInfo.logoUrl || teamInfo.logo;
+                const logoToUse = teamInfo.logoUrl;
                 
                 if (logoToUse) {
                     await Player.findByIdAndUpdate(p._id, { 
