@@ -565,11 +565,11 @@ app.post('/api/players', async (req, res) => {
     try {
         const playerData = req.body;
 
-        // If a team is assigned, find that team's logo
-        if (playerData.teamName) {
-            const team = await mongoose.model('Team').findOne({ name: playerData.teamName });
+        // NEW: Auto-assign logo if a team is selected
+        if (playerData.teamName && playerData.teamName !== "") {
+            const team = await Team.findOne({ name: playerData.teamName });
             if (team) {
-                playerData.teamLogo = team.logo; // Auto-assign logo from Team collection
+                playerData.teamLogo = team.logo; // Copies logo from Team collection
             }
         }
 
