@@ -1980,6 +1980,14 @@ app.get('/api/requests/track/:reqID', async (req, res) => {
     const data = await ManagementRequest.findOne({ requestID: req.params.reqID });
     res.json(data);
 });
+// --- RUN THIS ONCE: https://pes-park-backend.onrender.com/api/admin/clean-nms ---
+app.get('/api/admin/clean-nms', async (req, res) => {
+    // Delete any request that doesn't have a type or teamName
+    const result = await ManagementRequest.deleteMany({ 
+        $or: [{ requestType: { $exists: false } }, { teamName: { $exists: false } }] 
+    });
+    res.json({ message: `Purged ${result.deletedCount} broken test entries.` });
+});
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Admin Server running on ${PORT}`));
