@@ -1824,6 +1824,41 @@ app.delete('/api/smart/delete-fixture/:id', async (req, res) => {
         res.json({ success: true, message: "Fixture removed from database." });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
+// --- NEW TELEMETRY ROUTE ---
+app.get('/api/admin/telemetry', async (req, res) => {
+    try {
+        // 1. Get Database Stats (Size, Collections, Objects)
+        const stats = await mongoose.connection.db.command({ dbStats: 1 });
+        
+        // 2. Measure Latency (Ping)
+        const start = Date.now();
+        await mongoose.connection.db.command({ ping: 1 });
+        const latency = Date.now() - start;
+
+        res.json({
+            success: true,
+            storage: {
+                totalCapacity: 512, // Atlas M0 is 512MB
+                usedBytes: stats.storageSize, // Real bytes used
+                dataSize: stats.dataSize,
+                collections: stats.collections,
+                objects: stats.objects // Total "Players + Matches"
+            },
+            network: {
+                latency: latency,
+                status: "OPTIMAL",
+                uptime: process.uptime() // How long your backend has been running
+            },
+            cluster: {
+                provider: "AWS",
+                region: "ap-south-1 (Mumbai)",
+                version: "8.0.29"
+            }
+        });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Admin Server running on ${PORT}`));
