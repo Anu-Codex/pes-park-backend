@@ -843,8 +843,8 @@ app.get('/api/market/listings', async (req, res) => {
 
 // Add these to your existing server.js
 
-const ADMIN_EMAIL = "admin@pes-park.com";
-const ADMIN_PASS = "admin@pes-park123"; // You should use environment variables for this!
+const ADMIN_EMAIL = "admin@nexus.com";
+const ADMIN_PASS = "admin@nexus123"; // You should use environment variables for this!
 
 app.post('/api/login', (req, res) => {
     const { email, password } = req.body;
@@ -899,8 +899,8 @@ const fixtureSchema = new mongoose.Schema({
     scoreB: { type: Number, default: 0 },
     status: { type: String, default: "Upcoming" },
     stage: String,
-    isSubFixture: { type: Boolean, default: false }, // <--- ADD THIS
-    parentFixtureId: { type: String, default: null },
+    isSubFixture: { type: Boolean, default: false }, // Must be Boolean
+    parentFixtureId: { type: String, default: null }, // ID of the Team Match
     createdAt: { type: Date, default: Date.now }
 });
 
@@ -1263,20 +1263,21 @@ app.put('/api/smart/register-player', async (req, res) => {
 // 1. Route to CREATE a fixture (Used by Dashboard)
 app.post('/api/smart/create-fixture', async (req, res) => {
     try {
-        const { tourId, playerA, playerB } = req.body;
-        if(!tourId || !playerA || !playerB) return res.status(400).json({message: "Missing data"});
-
+        const { tourId, playerA, playerB, isSubFixture, parentFixtureId, stage } = req.body;
+        
         const newFixture = new Fixture({
             tourId,
             playerA,
             playerB,
+            isSubFixture: isSubFixture || false,
+            parentFixtureId: parentFixtureId || null,
+            stage: stage || "League",
             status: "Upcoming"
         });
 
         await newFixture.save();
-        res.json({ success: true, message: "Fixture Created!" });
+        res.json({ success: true });
     } catch (err) {
-        console.error("Create Fixture Error:", err);
         res.status(500).json({ error: err.message });
     }
 });
@@ -1343,8 +1344,8 @@ app.put('/api/smart/update-score/:id', async (req, res) => {
 };
 
         // Apply to both players
-        await applyRewards(fixture.playerA, scoreA, scoreB);
-        await applyRewards(fixture.playerB, scoreB, scoreA);
+        await applyRewards(fixture.playerA, scoreA, scoreB, tourType, fixture.tourId, fixture.isSubFixture, fixture.playerB);
+await applyRewards(fixture.playerB, scoreB, scoreA, tourType, fixture.tourId, fixture.isSubFixture, fixture.playerA);
 
         res.json({ success: true });
     } catch (err) {
