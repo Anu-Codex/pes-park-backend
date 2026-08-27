@@ -1804,7 +1804,25 @@ app.put('/api/teams/assign-captain', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+// --- 1. DELETE SPECIFIC TOURNAMENT ---
+app.delete('/api/smart/delete-tour/:id', async (req, res) => {
+    try {
+        const tourId = req.params.id;
+        // Delete the tour, its matches, and its points table entries
+        await Tournament.findByIdAndDelete(tourId);
+        await Fixture.deleteMany({ tourId: tourId });
+        await Standing.deleteMany({ tourId: tourId });
+        res.json({ success: true, message: "Tournament and all related data purged." });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
+// --- 2. DELETE INDIVIDUAL FIXTURE ---
+app.delete('/api/smart/delete-fixture/:id', async (req, res) => {
+    try {
+        await Fixture.findByIdAndDelete(req.params.id);
+        res.json({ success: true, message: "Fixture removed from database." });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Admin Server running on ${PORT}`));
