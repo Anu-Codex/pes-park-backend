@@ -1922,6 +1922,64 @@ app.get('/api/admin/fix-logos', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+// --- UPDATED MANAGEMENT SCHEMA ---
+const RequestSchema = new mongoose.Schema({
+    requestType: { type: String, enum: ['ISSUE', 'SUBSTITUTION', 'ID_CHANGE', 'REPLACEMENT'] },
+    requestID: { type: String, unique: true },
+    status: { type: String, default: 'Pending' },
+    timestamp: { type: Date, default: Date.now },
+    
+    // Shared Field
+    teamName: String,
+
+    // Specific Fields (Mapped to your images)
+    data: {
+        // Issue Reporting
+        playerName: String,
+        oppoTeamName: String,
+        oppoPlayerName: String,
+        issueDescription: String,
+
+        // Substitution
+        subIn: String, // Name & No.
+        subOut: String, // Name & No.
+
+        // ID Change
+        playerTag: String,
+        oldID: String,
+        newID: String,
+        newIDName: String,
+
+        // Replacement (Deep Data)
+        repIn: { name: String, div: String, rank: String, id: String, tag: String },
+        repOut: { name: String, div: String, rank: String, id: String, tag: String }
+    }
+});
+const ManagementRequest = mongoose.model('ManagementRequest', RequestSchema);
+
+// API Route to submit
+app.post('/api/requests/submit', async (req, res) => {
+    const reqID = 'NXS-' + Math.random().toString(36).substr(2, 6).toUpperCase();
+    const newReq = new ManagementRequest({ ...req.body, requestID: reqID });
+    await newReq.save();
+    res.json({ success: true, requestID: reqID });
+});
+app.get('/api/requests/all', async (req, res) => {
+    const list = await ManagementRequest.find().sort({ timestamp: -1 });
+    res.json(list);
+});
+
+// 3. Admin: Update Status
+app.put('/api/requests/status/:id', async (req, res) => {
+    await ManagementRequest.findByIdAndUpdate(req.params.id, { status: req.body.status });
+    res.json({ success: true });
+});
+
+// 4. Public: Track/Fetch for Certificate
+app.get('/api/requests/track/:reqID', async (req, res) => {
+    const data = await ManagementRequest.findOne({ requestID: req.params.reqID });
+    res.json(data);
+});
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Admin Server running on ${PORT}`));
