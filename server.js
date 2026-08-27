@@ -245,8 +245,9 @@ app.get('/api/teams/profile/:name', async (req, res) => {
         const T = mongoose.connection.db.collection('teams');
 
         const team = await T.findOne({ name: teamName });
-        const players = await P.find({ soldTo: { $regex: new RegExp('^' + teamName, 'i') } }).toArray();
-
+        const players = await Player.find({ 
+    teamName: { $regex: new RegExp('^' + teamName + '$', 'i') } 
+});
         if (!team) return res.status(404).json({ error: "Team not found" });
         res.json({ team, players });
     } catch (err) {
