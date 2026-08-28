@@ -1368,24 +1368,29 @@ app.put('/api/smart/update-score/:id', async (req, res) => {
     try {
         const { scoreA, scoreB } = req.body;
         const fixture = await Fixture.findById(req.params.id);
+
         if (!fixture) return res.status(404).json({ error: "Fixture not found" });
 
-        // Fetch tournament type to pass to rewards engine
+        // --- CRITICAL FIX: PREVENT DOUBLE COUNTING ---
+        // If the match was already completed, do NOT run applyRewards again.
+        if (fixture.status === "Completed") {
+            return res.status(400).json({ error: "This match is already recorded. To change the score, delete and recreate it." });
+        }
+
         const tour = await Tournament.findById(fixture.tourId);
         const tourType = tour ? tour.type : "auction";
 
         fixture.scoreA = Number(scoreA);
         fixture.scoreB = Number(scoreB);
-        fixture.status = "Completed";
+        fixture.status = "Completed"; // Lock the match
         await fixture.save();
 
-        // Process rewards for both sides
+        // Process rewards
         await applyRewards(fixture.playerA, scoreA, scoreB, tourType, fixture.tourId, fixture.isSubFixture, fixture.playerB);
         await applyRewards(fixture.playerB, scoreB, scoreA, tourType, fixture.tourId, fixture.isSubFixture, fixture.playerA);
 
-        res.json({ success: true, message: "Score and stats updated!" });
+        res.json({ success: true, message: "Score Locked & Stats Updated!" });
     } catch (err) {
-        console.error(err);
         res.status(500).json({ error: err.message });
     }
 });
