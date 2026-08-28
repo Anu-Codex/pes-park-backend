@@ -2010,6 +2010,47 @@ app.get('/api/admin/clean-nms', async (req, res) => {
     });
     res.json({ message: `Purged ${result.deletedCount} broken test entries.` });
 });
+// --- MASTER HISTORICAL SYNC ---
+app.get('/api/danger/sync-player-stats-from-history', async (req, res) => {
+    try {
+        console.log("Starting Global Player Stat Sync...");
+
+        // 1. RESET ALL PLAYERS TO STARTING STATE
+        // We set BDR to 0 and clear Match History.
+        // We set Market Value back to the original Auction Price.
+        const players = await Player.find();
+        for (let p of players) {
+            await Player.findByIdAndUpdate(p._id, {
+                bdrPoints: 0,
+                matches: [],
+                marketValue: p.auctionPrice || 0 // MV starts at what they were bought for
+            });
+        }
+
+        // 2. FETCH ALL COMPLETED MATCHES (In order they happened)
+        const completedMatches = await Fixture.find({ status: "Completed" }).sort({ createdAt: 1 });
+
+        for (let m of completedMatches) {
+            // Get the tournament type for this match
+            const tour = await Tournament.findById(m.tourId);
+            const tourType = tour ? tour.type : "auction";
+
+            // 3. RUN THE NEW REWARDS LOGIC FOR EACH OLD MATCH
+            // Player A
+            await applyRewards(m.playerA, m.scoreA, m.scoreB, tourType, m.tourId, m.isSubFixture, m.playerB);
+            // Player B
+            await applyRewards(m.playerB, m.scoreB, m.scoreA, tourType, m.tourId, m.isSubFixture, m.playerA);
+        }
+
+        res.json({ 
+            success: true, 
+            message: `Neural Link Synced! Processed ${completedMatches.length} matches for ${players.length} players.` 
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: err.message });
+    }
+});
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Admin Server running on ${PORT}`));
