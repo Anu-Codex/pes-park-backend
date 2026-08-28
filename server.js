@@ -1310,60 +1310,82 @@ app.get('/api/smart/fixtures/:tourId', async (req, res) => {
         res.status(500).json({ error: "DB Error" });
     }
 });
+// 1. THE UPDATED REWARDS ENGINE
+const applyRewards = async (pName, myScore, oppScore, tourType, tourId, isSubFixture, oppName) => {
+    if (!pName) return;
+
+    // Fix: Handle cases where isSubFixture might come as a string "true"
+    const subFlag = String(isSubFixture) === "true";
+
+    // 1. Find the Player in the database
+    const player = await Player.findOne({ name: { $regex: new RegExp('^' + pName.trim() + '$', 'i') } });
+    
+    // 2. LOGIC: Update Individual Stats if it's a Solo Challenge OR a Sub-Match (Member vs Member)
+    if (player && (tourType === 'solo' || subFlag === true)) {
+        let mvAdd = (myScore > oppScore) ? 15 : (myScore === oppScore ? 5 : -10);
+        let bdrAdd = (myScore > oppScore) ? 5 : (myScore === oppScore ? 1 : -3);
+        
+        // Goal Bonus
+        mvAdd += (Number(myScore) * 3);
+        bdrAdd += (Number(myScore) * 1);
+
+        // Update Global Stats & Match History
+        const matchEntry = {
+            opponentName: oppName,
+            myScore: Number(myScore),
+            oppScore: Number(oppScore),
+            result: (myScore > oppScore) ? "WIN" : (myScore === oppScore ? "DRAW" : "LOSS"),
+            date: new Date()
+        };
+
+        await Player.findByIdAndUpdate(player._id, { 
+            $inc: { marketValue: mvAdd, bdrPoints: bdrAdd },
+            $push: { matches: { $each: [matchEntry], $position: 0 } } 
+        });
+        
+        console.log(`Individual rewards applied to ${pName} (${subFlag ? 'Sub-Match' : 'Solo'})`);
+    }
+
+    // 3. LOGIC: Update Point Table (Standing) if it's NOT a sub-fixture 
+    // (Main team matches update the table; individual sub-matches do not)
+    if (subFlag === false) {
+        const pts = (myScore > oppScore) ? 3 : (myScore === oppScore ? 1 : 0);
+        await Standing.findOneAndUpdate(
+            { tourId: tourId, participant: pName },
+            { $inc: { 
+                played: 1, 
+                wins: myScore > oppScore ? 1 : 0, 
+                draws: myScore === oppScore ? 1 : 0, 
+                losses: myScore < oppScore ? 1 : 0, 
+                gf: Number(myScore), ga: Number(oppScore), points: pts 
+            }}
+        );
+    }
+};
+
+// 2. THE UPDATED SCORE UPDATE ROUTE
 app.put('/api/smart/update-score/:id', async (req, res) => {
     try {
         const { scoreA, scoreB } = req.body;
         const fixture = await Fixture.findById(req.params.id);
-        if (!fixture || fixture.status === "Completed") return res.status(400).json({ error: "Invalid or already completed" });
+        if (!fixture) return res.status(404).json({ error: "Fixture not found" });
 
+        // Fetch tournament type to pass to rewards engine
         const tour = await Tournament.findById(fixture.tourId);
         const tourType = tour ? tour.type : "auction";
 
-        // 1. UPDATE FIXTURE
-        fixture.scoreA = scoreA;
-        fixture.scoreB = scoreB;
+        fixture.scoreA = Number(scoreA);
+        fixture.scoreB = Number(scoreB);
         fixture.status = "Completed";
         await fixture.save();
 
-        // 2. REWARD CALCULATION FUNCTION
-        const applyRewards = async (pName, myScore, oppScore, tourType) => {
-    if (!pName) return;
-
-    // RULE 1: Only award BDR/Market Value in Solo Challenges (Player vs Player)
-    if (tourType === 'solo' && isPlayer) {
-        // Update Individual Global Stats
-        let mvAdd = (myScore > oppScore) ? 15 : (myScore === oppScore ? 5 : -10);
-        let bdrAdd = (myScore > oppScore) ? 5 : (myScore === oppScore ? 1 : -3);
-        mvAdd += (myScore * 3);
-
-        await Player.findOneAndUpdate({ name: pName }, { $inc: { marketValue: mvAdd, bdrPoints: bdrAdd } });
-        await TourRank.findOneAndUpdate(
-            { tour: 'solo', category: "boot", playerName: pName },
-            { $inc: { totalValue: myScore }, $set: { teamName: isPlayer.teamName || "Free Agent" } },
-            { upsert: true }
-        );
-    }
-
-    // RULE 2: Point Table (Standing) updates for BOTH Solo and Auction
-    const pts = (myScore > oppScore) ? 3 : (myScore === oppScore ? 1 : 0);
-    await Standing.findOneAndUpdate(
-        { tourId: fixture.tourId, participant: pName },
-        { $inc: { 
-            played: 1, 
-            wins: myScore > oppScore ? 1 : 0, 
-            draws: myScore === oppScore ? 1 : 0, 
-            losses: myScore < oppScore ? 1 : 0, 
-            gf: myScore, ga: oppScore, points: pts 
-        }}
-    );
-};
-
-        // Apply to both players
+        // Process rewards for both sides
         await applyRewards(fixture.playerA, scoreA, scoreB, tourType, fixture.tourId, fixture.isSubFixture, fixture.playerB);
-await applyRewards(fixture.playerB, scoreB, scoreA, tourType, fixture.tourId, fixture.isSubFixture, fixture.playerA);
+        await applyRewards(fixture.playerB, scoreB, scoreA, tourType, fixture.tourId, fixture.isSubFixture, fixture.playerA);
 
-        res.json({ success: true });
+        res.json({ success: true, message: "Score and stats updated!" });
     } catch (err) {
+        console.error(err);
         res.status(500).json({ error: err.message });
     }
 });
