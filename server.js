@@ -1434,38 +1434,49 @@ app.get('/api/smart/recalculate-table/:tourId', async (req, res) => {
     try {
         const { tourId } = req.params;
 
-        // 1. Reset all standings for this tour to 0
-        await Standing.updateMany({ tourId }, { 
-            played: 0, wins: 0, draws: 0, losses: 0, gf: 0, ga: 0, points: 0 
-        });
+        // 1. Get Tournament to find the official list of participants (Clubs or Players)
+        const tour = await Tournament.findById(tourId);
+        if (!tour) return res.status(404).json({ error: "Tour not found" });
 
-        // 2. Get all COMPLETED matches for this tour
+        // 2. WIPE the current corrupted standings for this tour
+        await Standing.deleteMany({ tourId });
+
+        // 3. INITIALIZE every participant to 0
+        const initialStandings = tour.participants.map(p => ({
+            tourId, participant: p, played: 0, wins: 0, draws: 0, losses: 0, gf: 0, ga: 0, points: 0
+        }));
+        await Standing.insertMany(initialStandings);
+
+        // 4. FETCH all completed matches for this tour
         const matches = await Fixture.find({ tourId, status: "Completed" });
 
         for (let m of matches) {
-            const getStats = (s1, s2) => {
-                if (s1 > s2) return { w: 1, d: 0, l: 0, pts: 3 };
-                if (s1 === s2) return { w: 0, d: 1, l: 0, pts: 1 };
-                return { w: 0, d: 0, l: 1, pts: 0 };
+            // --- CRITICAL FIX: IGNORE MEMBER MATCHES ---
+            // Member matches update individual profiles, NOT the points table.
+            if (m.isSubFixture === true || String(m.isSubFixture) === "true") {
+                continue; // Skip this loop iteration
+            }
+
+            const updateStats = async (name, myS, oppS) => {
+                let w = myS > oppS ? 1 : 0;
+                let d = myS === oppS ? 1 : 0;
+                let l = myS < oppS ? 1 : 0;
+                let pts = (myS > oppS) ? 3 : (myS === oppS ? 1 : 0);
+
+                await Standing.findOneAndUpdate(
+                    { tourId, participant: name },
+                    { $inc: { played: 1, wins: w, draws: d, losses: l, gf: myS, ga: oppS, points: pts } }
+                );
             };
 
-            const resA = getStats(m.scoreA, m.scoreB);
-            const resB = getStats(m.scoreB, m.scoreA);
-
-            // Update Player A
-            await Standing.findOneAndUpdate(
-                { tourId, participant: m.playerA },
-                { $inc: { played: 1, wins: resA.w, draws: resA.d, losses: resA.l, gf: m.scoreA, ga: m.scoreB, points: resA.pts } }
-            );
-            // Update Player B
-            await Standing.findOneAndUpdate(
-                { tourId, participant: m.playerB },
-                { $inc: { played: 1, wins: resB.w, draws: resB.d, losses: resB.l, gf: m.scoreB, ga: m.scoreA, points: resB.pts } }
-            );
+            // Update both teams in the table
+            await updateStats(m.playerA, m.scoreA, m.scoreB);
+            await updateStats(m.playerB, m.scoreB, m.scoreA);
         }
 
-        res.json({ success: true, message: "Points table updated from match history!" });
+        res.json({ success: true, message: "Table rebuilt! Corrupted data removed." });
     } catch (err) {
+        console.error(err);
         res.status(500).json({ error: err.message });
     }
 });
