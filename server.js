@@ -2161,6 +2161,38 @@ app.get('/api/smart/tour-goals/:tourId', async (req, res) => {
         res.status(500).json({ error: "Failed to calculate goals" });
     }
 });
+// --- NEW: GLOBAL GOLDEN BOOT AGGREGATOR ---
+app.get('/api/stats/global-golden-boot', async (req, res) => {
+    try {
+        // Find all goal records across ALL tours (solo, auction, quick)
+        const allGoalRecords = await TourRank.find({ category: "boot" });
+
+        const globalStats = {};
+
+        for (const record of allGoalRecords) {
+            const name = record.playerName;
+            if (!globalStats[name]) {
+                // Fetch player details once to get the latest avatar/team
+                const pData = await Player.findOne({ name }).select('image teamName teamLogo').lean();
+                globalStats[name] = {
+                    name: name,
+                    totalGoals: 0,
+                    team: pData ? pData.teamName : "Free Agent",
+                    logo: pData ? pData.teamLogo : "",
+                    image: pData ? pData.image : ""
+                };
+            }
+            globalStats[name].totalGoals += record.totalValue;
+        }
+
+        // Convert to array and sort by highest total goals
+        const result = Object.values(globalStats).sort((a, b) => b.totalGoals - a.totalGoals);
+        res.json(result);
+    } catch (err) {
+        res.status(500).json({ error: "Failed to aggregate global stats" });
+    }
+});
+
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Admin Server running on ${PORT}`));
