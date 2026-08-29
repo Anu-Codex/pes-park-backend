@@ -2067,6 +2067,40 @@ app.get('/api/danger/sync-player-stats-from-history', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+// --- SYNC SQUAD IMAGES FROM AUCTION DATABASE ---
+app.get('/api/danger/sync-squad-images', async (req, res) => {
+    try {
+        // 1. Access the 'players' collection from the Auction database
+        const AuctionPlayers = mongoose.connection.db.collection('players');
+        
+        // 2. Get all players from your current Community database
+        const communityPlayers = await Player.find();
+        let count = 0;
+
+        for (let p of communityPlayers) {
+            // Find the matching player in the Auction DB
+            const aPlayer = await AuctionPlayers.findOne({ 
+                name: { $regex: new RegExp("^" + p.name.trim() + "$", "i") } 
+            });
+
+            // If found and the auction site has a squad image
+            if (aPlayer && aPlayer.imageUrl) {
+                await Player.findByIdAndUpdate(p._id, { 
+                    squadImage: aPlayer.imageUrl
+                });
+                count++;
+            }
+        }
+
+        res.json({ 
+            success: true, 
+            message: `SYNC COMPLETE: Imported ${count} squad images from Auction Archive.` 
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: "Failed to connect to Auction Archive." });
+    }
+});
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Admin Server running on ${PORT}`));
