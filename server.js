@@ -924,7 +924,7 @@ const fixtureSchema = new mongoose.Schema({
     scoreA: { type: Number, default: 0 },
     scoreB: { type: Number, default: 0 },
     status: { type: String, default: "Upcoming" },
-    stage: String,
+    stage: { type: String, default: "League" },
     isSubFixture: { type: Boolean, default: false }, // Must be Boolean
     parentFixtureId: { type: String, default: null }, // ID of the Team Match
     createdAt: { type: Date, default: Date.now }
