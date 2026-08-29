@@ -78,7 +78,12 @@ const PlayerSchema = new mongoose.Schema({
         weekly: { type: Number, default: 0 },
         goldenBoot: { type: Number, default: 0 }
     },
-    isCaptain: { type: Boolean, default: false }
+    isCaptain: { type: Boolean, default: false },
+    customTrophies: [{
+        name: String,
+        image: String,
+        awardedAt: { type: Date, default: Date.now }
+    }]
 });
 
 const Player = mongoose.model('Player', PlayerSchema);
@@ -2202,6 +2207,44 @@ app.get('/api/stats/global-golden-boot', async (req, res) => {
     } catch (err) {
         res.status(500).json({ error: "Failed to aggregate global stats" });
     }
+});
+// --- 1. NEW TROPHY DEFINITION SCHEMA ---
+const TrophyDefSchema = new mongoose.Schema({
+    name: String,
+    image: String, // ImgBB URL
+    category: { type: String, default: 'custom' } // 'core' or 'custom'
+});
+const TrophyDef = mongoose.model('TrophyDef', TrophyDefSchema);
+
+// Create a new Trophy type
+app.post('/api/trophies/define', async (req, res) => {
+    const newTrophy = new TrophyDef(req.body);
+    await newTrophy.save();
+    res.json({ success: true });
+});
+
+// Award Core Trophy (+1 to count)
+app.put('/api/trophies/award-core', async (req, res) => {
+    const { playerId, type } = req.body; // type: 'ballonDor', 'quickTour', etc.
+    const update = {};
+    update[`trophies.${type}`] = 1;
+    await Player.findByIdAndUpdate(playerId, { $inc: update });
+    res.json({ success: true });
+});
+
+// Award Custom Trophy (Add to array)
+app.put('/api/trophies/award-custom', async (req, res) => {
+    const { playerId, trophyId } = req.body;
+    const trophy = await TrophyDef.findById(trophyId);
+    await Player.findByIdAndUpdate(playerId, { 
+        $push: { customTrophies: { name: trophy.name, image: trophy.image } } 
+    });
+    res.json({ success: true });
+});
+
+// Get all Trophy Definitions
+app.get('/api/trophies/list', async (req, res) => {
+    res.json(await TrophyDef.find());
 });
 
 
