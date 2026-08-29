@@ -28,7 +28,47 @@ apiKey.apiKey = process.env.BREVO_API_KEY; // Ensure this is in Render Env Vars
 const apiInstance = new SibApiV3Sdk.TransactionalEmailsApi();
 
 // --- SCHEMAS ---
+const { exec } = require('child_process');
+const os = require('os');
 
+app.get('/api/system/stats', (req, res) => {
+    // Command to check disk space in the current directory (.)
+    exec('df -h .', (err, stdout) => {
+        let diskData = { total: "N/A", used: "N/A", free: "N/A", percent: "0" };
+        
+        if (!err) {
+            const lines = stdout.split('\n');
+            const stats = lines[1].replace(/\s+/g, ' ').split(' ');
+            // stats[1]=Total, stats[2]=Used, stats[3]=Free, stats[4]=Usage%
+            diskData = {
+                total: stats[1],
+                used: stats[2],
+                free: stats[3],
+                percent: stats[4].replace('%', '')
+            };
+        }
+
+        const totalMem = os.totalmem();
+        const freeMem = os.freemem();
+        const usedMem = totalMem - freeMem;
+
+        res.json({
+            success: true,
+            ram: {
+                total: (totalMem / (1024 ** 3)).toFixed(2) + " GB",
+                used: (usedMem / (1024 ** 3)).toFixed(2) + " GB",
+                free: (freeMem / (1024 ** 3)).toFixed(2) + " GB",
+                percent: ((usedMem / totalMem) * 100).toFixed(1)
+            },
+            disk: diskData, // NEW DISK DATA
+            server: {
+                platform: os.platform(),
+                region: process.env.RENDER_REGION || "Frankfurt (EU)",
+                uptime: Math.floor(process.uptime())
+            }
+        });
+    });
+});
 // Player Schema
 // Expand the Player Schema
 const PlayerSchema = new mongoose.Schema({
