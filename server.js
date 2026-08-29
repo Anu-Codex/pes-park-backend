@@ -2225,11 +2225,25 @@ app.post('/api/trophies/define', async (req, res) => {
 
 // Award Core Trophy (+1 to count)
 app.put('/api/trophies/award-core', async (req, res) => {
-    const { playerId, type } = req.body; // type: 'ballonDor', 'quickTour', etc.
-    const update = {};
-    update[`trophies.${type}`] = 1;
-    await Player.findByIdAndUpdate(playerId, { $inc: update });
-    res.json({ success: true });
+    try {
+        const { playerId, type } = req.body; // type will be 'ballonDor', etc.
+
+        // Safety: Prevent script from crashing if type is missing
+        if (!type) return res.status(400).json({ error: "Trophy type required" });
+
+        // Build the dynamic path: e.g., "trophies.ballonDor"
+        const updatePath = `trophies.${type}`;
+        
+        const updatedPlayer = await Player.findByIdAndUpdate(
+            playerId, 
+            { $inc: { [updatePath]: 1 } }, // Adds 1 to the current count
+            { new: true }
+        );
+
+        res.json({ success: true, newCount: updatedPlayer.trophies[type] });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // Award Custom Trophy (Add to array)
