@@ -1329,6 +1329,10 @@ app.get('/api/smart/fixtures/:tourId', async (req, res) => {
 // 1. THE UPDATED REWARDS ENGINE
 const applyRewards = async (pName, myScore, oppScore, tourType, tourId, isSubFixture, oppName) => {
     if (!pName) return;
+    if (tourType === 'quick') {
+        console.log(`Quick Tour Match Detected: Skipping Global Stat Updates for ${pName}`);
+        return; 
+    }
 
     // Fix: Handle cases where isSubFixture might come as a string "true"
     const subFlag = String(isSubFixture) === "true";
