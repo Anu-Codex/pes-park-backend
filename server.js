@@ -73,10 +73,9 @@ const PlayerSchema = new mongoose.Schema({
     // Trophies count
     trophies: {
         ballonDor: { type: Number, default: 0 },
-        ucl: { type: Number, default: 0 },
-        league: { type: Number, default: 0 },
-        weekly: { type: Number, default: 0 },
-        goldenBoot: { type: Number, default: 0 }
+        quickTour: { type: Number, default: 0 }, 
+        soloBoot: { type: Number, default: 0 },  
+        auctionBoot: { type: Number, default: 0 }
     },
     isCaptain: { type: Boolean, default: false },
     customTrophies: [{
