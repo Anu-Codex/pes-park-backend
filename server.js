@@ -1067,23 +1067,39 @@ const TeamSchema = new mongoose.Schema({
 });
 const Team = mongoose.model('Team', TeamSchema);
 
-// 2. Route to get League Leader
+// --- DYNAMIC LEAGUE LEADER ROUTE ---
 app.get('/api/teams/leader', async (req, res) => {
     try {
-        const teams = await Team.find();
-        if (teams.length === 0) return res.json({ name: "None", points: 0 });
+        // 1. Find the most recent Auction Tournament created
+        const latestTour = await Tournament.findOne({ type: 'auction' }).sort({ createdAt: -1 });
 
-        // Calculate points for each team based on your rules
-        const rankedTeams = teams.map(t => {
-            const points = (t.wins * 3) + (t.draws * 1) + (t.losses * -2);
-            return { name: t.name, points: points };
+        if (!latestTour) {
+            return res.json({ name: "None", points: 0 });
+        }
+
+        // 2. Fetch the standings for this specific tournament
+        const standings = await Standing.find({ tourId: latestTour._id });
+
+        if (standings.length === 0) {
+            return res.json({ name: "None", points: 0 });
+        }
+
+        // 3. Sort by Points > GD > GF (Just like your points table)
+        standings.sort((a, b) => {
+            const gdA = (a.gf || 0) - (a.ga || 0);
+            const gdB = (b.gf || 0) - (b.ga || 0);
+            return (b.points - a.points) || (gdB - gdA) || (b.gf - a.gf);
         });
 
-        // Sort to find the top one
-        rankedTeams.sort((a, b) => b.points - a.points);
-        res.json(rankedTeams[0]);
+        // 4. Return the #1 team
+        const leader = standings[0];
+        res.json({
+            name: leader.participant,
+            points: leader.points
+        });
     } catch (err) {
-        res.status(500).send(err);
+        console.error("Leader Error:", err);
+        res.status(500).json({ error: "Failed to fetch leader" });
     }
 });
 
