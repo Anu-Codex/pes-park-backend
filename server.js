@@ -161,24 +161,31 @@ app.get('/api/v2/dressing-room/:teamName', async (req, res) => {
 // 1. Add to Player Schema (if not already there)
 // isOnTransferList: { type: Boolean, default: false },
 // transferPrice: { type: Number, default: 0 }
-// --- NEW: AI SCOUTING REPORT ENDPOINT ---
+// --- FIXED MISTRAL SCOUTING ROUTE ---
 app.post('/api/bot/scout-player', async (req, res) => {
     try {
         const { name, attributes, marketValue, bdrPoints } = req.body;
         
-        const prompt = `Generate a high-end eSports tactical scouting report for a player named ${name}. 
-        Stats: Market Value: ${marketValue}M, BDR: ${bdrPoints}. 
-        Attributes: Consistency: ${attributes.consistency}, Big Match: ${attributes.bigMatch}, Scoring: ${attributes.scoring}, Playmaking: ${attributes.playmaking}, Defense: ${attributes.defense}, Mental: ${attributes.mental}.
-        Keep it to 2-3 professional sentences. Use aggressive eSports terminology like 'clutch factor', 'tactical asset', or 'defensive anchor'.`;
+        // Ensure Mistral is initialized
+        if (!mistral) return res.status(500).json({ report: "AI Neural Link Offline." });
 
-        const chatCompletion = await groq.chat.completions.create({
-            messages: [{ role: "user", content: prompt }],
-            model: "llama-3.1-8b-instant",
+        const prompt = `Act as an eSports Head Scout. Generate a tactical dossier for:
+        PLAYER: ${name}
+        VALUATION: ${marketValue}M
+        BDR: ${bdrPoints}
+        STATS: Consistency:${attributes.consistency}, BigMatch:${attributes.bigMatch}, Scoring:${attributes.scoring}, Playmaking:${attributes.playmaking}, Defense:${attributes.defense}, Mental:${attributes.mental}.
+        Write 2-3 aggressive, professional eSports sentences. Highlight their strongest trait.`;
+
+        const chatResponse = await mistral.chat({
+            model: 'mistral-tiny',
+            messages: [{ role: 'user', content: prompt }]
         });
 
-        res.json({ report: chatCompletion.choices[0].message.content });
+        const report = chatResponse.choices[0].message.content;
+        res.json({ report });
     } catch (err) {
-        res.status(500).json({ report: "Unable to generate tactical dossier at this time." });
+        console.error("Mistral Scout Error:", err);
+        res.status(500).json({ report: "Tactical Data Transmission Interrupted." });
     }
 });
 // --- IMPROVED TEAM & LOGO SYNC ---
