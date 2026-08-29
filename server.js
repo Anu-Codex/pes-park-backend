@@ -1397,10 +1397,11 @@ const applyRewards = async (pName, myScore, oppScore, tourType, tourId, isSubFix
 // 2. THE UPDATED SCORE UPDATE ROUTE
 app.put('/api/smart/update-score/:id', async (req, res) => {
     try {
-        const { scoreA, scoreB } = req.body;
+        const { scoreA, scoreB, stage } = req.body;
         const fixture = await Fixture.findById(req.params.id);
 
         if (!fixture) return res.status(404).json({ error: "Fixture not found" });
+        if (stage) fixture.stage = stage;
 
         // --- CRITICAL FIX: PREVENT DOUBLE COUNTING ---
         // If the match was already completed, do NOT run applyRewards again.
