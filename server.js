@@ -2101,6 +2101,50 @@ app.get('/api/danger/sync-squad-images', async (req, res) => {
         res.status(500).json({ error: "Failed to connect to Auction Archive." });
     }
 });
+// --- NEW: AGGREGATE GOALS FROM SUB-MATCHES ---
+app.get('/api/smart/tour-goals/:tourId', async (req, res) => {
+    try {
+        const { tourId } = req.params;
+        
+        // 1. Find all completed member matches (sub-fixtures) for this tour
+        const subMatches = await Fixture.find({ 
+            tourId: tourId, 
+            isSubFixture: true, 
+            status: "Completed" 
+        });
+
+        const goalMap = {};
+
+        // 2. Loop through matches and sum goals
+        subMatches.forEach(m => {
+            // Player A
+            if (!goalMap[m.playerA]) goalMap[m.playerA] = 0;
+            goalMap[m.playerA] += (m.scoreA || 0);
+            // Player B
+            if (!goalMap[m.playerB]) goalMap[m.playerB] = 0;
+            goalMap[m.playerB] += (m.scoreB || 0);
+        });
+
+        // 3. Convert Map to Array and fetch player details (Team & Image)
+        const sortedList = await Promise.all(Object.keys(goalMap).map(async (name) => {
+            const pData = await Player.findOne({ name: name }).select('name teamName teamLogo image');
+            return {
+                name: name,
+                goals: goalMap[name],
+                team: pData ? pData.teamName : "Free Agent",
+                logo: pData ? pData.teamLogo : "",
+                image: pData ? pData.image : ""
+            };
+        }));
+
+        // 4. Sort by highest goals
+        sortedList.sort((a, b) => b.goals - a.goals);
+
+        res.json(sortedList);
+    } catch (err) {
+        res.status(500).json({ error: "Failed to calculate goals" });
+    }
+});
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Admin Server running on ${PORT}`));
