@@ -2300,6 +2300,37 @@ app.put('/api/trophies/award-custom', async (req, res) => {
 app.get('/api/trophies/list', async (req, res) => {
     res.json(await TrophyDef.find());
 });
+app.get('/api/admin/sync-new-logos', async (req, res) => {
+    try {
+        const AuctionTeams = mongoose.connection.db.collection('teams');
+        
+        // Find players who have a team name but NO logo saved
+        const playersMissingLogos = await Player.find({ 
+            teamName: { $exists: true, $ne: "" },
+            $or: [{ teamLogo: { $exists: false } }, { teamLogo: "" }]
+        });
+
+        let count = 0;
+        for (let p of playersMissingLogos) {
+            // Clean the team name to handle potential extra info in brackets
+            const cleanName = p.teamName.split(' (')[0].trim();
+            
+            // Search for the team in the teams collection (Case-insensitive)
+            const teamInfo = await AuctionTeams.findOne({ 
+                name: { $regex: new RegExp('^' + cleanName.replace('.', '\\\\.') + '$', 'i') } 
+            });
+
+            if (teamInfo && teamInfo.logoUrl) {
+                // Update the player record with the found logo
+                await Player.findByIdAndUpdate(p._id, { teamLogo: teamInfo.logoUrl });
+                count++;
+            }
+        }
+        res.json({ success: true, message: `Tactical Sync Complete: ${count} new logos imported.` });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
 
 
 const PORT = process.env.PORT || 5000;
