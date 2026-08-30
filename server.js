@@ -2331,6 +2331,68 @@ app.get('/api/admin/sync-new-logos', async (req, res) => {
         res.status(500).json({ success: false, error: err.message });
     }
 });
+// --- NEW: TEAM BDR CHAMPIONSHIP AGGREGATOR ---
+app.get('/api/stats/team-bdr', async (req, res) => {
+    try {
+        // 1. Get all players who belong to a team
+        const players = await Player.find({ teamName: { $exists: true, $ne: "" } });
+
+        const teamsMap = {};
+
+        players.forEach(p => {
+            if (!teamsMap[p.teamName]) {
+                teamsMap[p.teamName] = {
+                    name: p.teamName,
+                    logo: p.teamLogo,
+                    totalBDR: 0,
+                    playerCount: 0,
+                    members: []
+                };
+            }
+            teamsMap[p.teamName].totalBDR += (p.bdrPoints || 0);
+            teamsMap[p.teamName].playerCount += 1;
+            // Push member info for the expanded view
+            teamsMap[p.teamName].members.push({
+                name: p.name,
+                bdr: p.bdrPoints || 0,
+                // Calculate a simple 'Grade' based on BDR
+                grade: (p.bdrPoints > 20) ? 'S-grade' : (p.bdrPoints > 10 ? 'A-grade' : 'B-grade'),
+                image: p.image
+            });
+        });
+
+        // 2. Convert to array and sort by total BDR points
+        const result = Object.values(teamsMap).sort((a, b) => b.totalBDR - a.totalBDR);
+        
+        res.json(result);
+    } catch (err) {
+        res.status(500).json({ error: "Neural Link Sync Failed" });
+    }
+});
+// --- CALENDAR SCHEMA ---
+const EventSchema = new mongoose.Schema({
+    title: String,
+    date: String, // Format: YYYY-MM-DD
+    type: { type: String, enum: ['league', 'weekly', 'ucl', 'playoff', 'auction'] }
+});
+const CalendarEvent = mongoose.model('CalendarEvent', EventSchema);
+
+// --- ROUTES ---
+app.get('/api/calendar/events', async (req, res) => {
+    const events = await CalendarEvent.find();
+    res.json(events);
+});
+
+app.post('/api/calendar/events', async (req, res) => {
+    const newEvent = new CalendarEvent(req.body);
+    await newEvent.save();
+    res.json({ success: true });
+});
+
+app.delete('/api/calendar/events/:id', async (req, res) => {
+    await CalendarEvent.findByIdAndDelete(req.params.id);
+    res.json({ success: true });
+});
 
 
 const PORT = process.env.PORT || 5000;
