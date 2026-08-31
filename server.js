@@ -133,25 +133,47 @@ app.get('/api/players/:id', async (req, res) => {
     res.json(player);
 });
 
-// UPDATE Player Stats (Dashboard & Profile)
+// --- SMART PLAYER UPDATE (WITH NAME CASCADE) ---
 app.put('/api/players/:id', async (req, res) => {
     try {
-        console.log("Incoming Update for ID:", req.params.id);
-        console.log("Data received:", req.body); // This will show if 'image' is empty or not
+        const { id } = req.params;
+        const newData = req.body;
 
-        const updatedPlayer = await Player.findByIdAndUpdate(
-            req.params.id, 
-            { $set: req.body }, 
-            { new: true } // Returns the updated document
-        );
+        // 1. Find the player's CURRENT name before we change it
+        const player = await Player.findById(id);
+        if (!player) return res.status(404).json({ success: false, message: "Player not found" });
 
-        if (!updatedPlayer) {
-            return res.status(404).json({ success: false, message: "Player not found" });
+        const oldName = player.name;
+        const newName = newData.name;
+
+        // 2. Perform the main update on the Player document
+        await Player.findByIdAndUpdate(id, newData);
+
+        // 3. IF THE NAME CHANGED: Update all other collections automatically
+        if (newName && oldName !== newName) {
+            console.log(`Cascading name change: ${oldName} -> ${newName}`);
+
+            // A. Update Fixtures (Matches)
+            const Fixture = mongoose.models.Fixture;
+            await Fixture.updateMany({ playerA: oldName }, { $set: { playerA: newName } });
+            await Fixture.updateMany({ playerB: oldName }, { $set: { playerB: newName } });
+
+            // B. Update Tournament Standings (Points Table)
+            const Standing = mongoose.models.Standing;
+            await Standing.updateMany({ participant: oldName }, { $set: { participant: newName } });
+
+            // C. Update Tournament Rankings (Golden Boot / Best Player)
+            const TourRank = mongoose.models.TourRank;
+            await TourRank.updateMany({ playerName: oldName }, { $set: { playerName: newName } });
+
+            // D. Update Transfer Market Listings
+            const TransferListing = mongoose.models.TransferListing;
+            await TransferListing.updateMany({ playerName: oldName }, { $set: { playerName: newName } });
         }
 
-        res.json({ success: true, player: updatedPlayer });
+        res.json({ success: true, message: "Player and all related records updated!" });
     } catch (err) {
-        console.error("Update Error:", err);
+        console.error(err);
         res.status(500).json({ success: false, error: err.message });
     }
 });
