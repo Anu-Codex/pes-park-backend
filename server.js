@@ -1161,9 +1161,22 @@ app.put('/api/teams/update-stats', async (req, res) => {
     res.json({ success: true });
 });
 app.get('/api/teams/all', async (req, res) => {
-    // This finds all unique team names from your Team schema
-    const teams = await Team.find({}, 'name'); 
-    res.json(teams);
+    try {
+        // Fetch name, logo, and logoUrl (to support both naming styles from your auction site)
+        const teams = await mongoose.model('Team').find({}, 'name logo logoUrl');
+        
+        // Transform the data so the frontend always sees a field called "logo"
+        const formattedTeams = teams.map(t => ({
+            _id: t._id,
+            name: t.name,
+            logo: t.logo || t.logoUrl || 'https://via.placeholder.com/40'
+        }));
+
+        console.log("Teams synced from Auction DB:", formattedTeams.length);
+        res.json(formattedTeams);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 // Add this route to your server.js
 app.post('/api/debug', (req, res) => {
@@ -2455,33 +2468,41 @@ app.get('/api/teams/profile-by-id/:id', async (req, res) => {
     try {
         const id = req.params.id;
 
-        // 1. Find the team using its Unique ID
-        const team = await Team.findById(id);
-        if (!team) return res.status(404).json({ error: "Team not found" });
+        // 1. Find the team using its Unique MongoDB ID
+        const team = await mongoose.model('Team').findById(id);
+        if (!team) return res.status(404).json({ error: "Team not found in Auction Database" });
 
         const teamName = team.name;
 
-        // 2. Find players who belong to this team name
-        const players = await Player.find({ teamName: teamName });
+        // 2. Find players assigned to this team name
+        const players = await mongoose.model('Player').find({ 
+            teamName: teamName 
+        });
 
-        // 3. Find matches for this team (Recent Form)
-        const matches = await Fixture.find({
+        // 3. Find match history for recent form
+        const matches = await mongoose.model('Fixture').find({
             $or: [{ playerA: teamName }, { playerB: teamName }],
             status: "Completed"
         }).sort({ createdAt: -1 }).limit(10);
 
-        // 4. Find trophies from Hall of Fame
-        const hof = await HofSeason.find({ "trophyWinners.winner": teamName });
-        const trophies = [];
-        hof.forEach(season => {
-            season.trophyWinners.forEach(t => {
-                if(t.winner === teamName) trophies.push({ season: season.seasonName, title: t.title });
-            });
+        // 4. Fetch Trophies (Optional: only if you have a trophy collection)
+        // If you don't have this yet, it will just return an empty list
+        const trophies = []; 
+
+        res.json({ 
+            team: {
+                name: team.name,
+                logo: team.logo || team.logoUrl || 'https://via.placeholder.com/100',
+                budget: team.budget || 0
+            }, 
+            players, 
+            matches, 
+            trophies 
         });
 
-        res.json({ team, players, matches, trophies });
     } catch (err) {
-        res.status(500).json({ error: "Server Error: check if ID is valid" });
+        console.error("Backend ID Error:", err);
+        res.status(500).json({ error: "Invalid Team ID format or database sync error" });
     }
 });
 
