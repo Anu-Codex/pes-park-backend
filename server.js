@@ -2393,6 +2393,63 @@ app.delete('/api/calendar/events/:id', async (req, res) => {
     await CalendarEvent.findByIdAndDelete(req.params.id);
     res.json({ success: true });
 });
+// --- SELECTIVE REWARD SYNC (AUCTION & SOLO ONLY) ---
+app.get('/api/smart/sync-pro-rewards', async (req, res) => {
+    try {
+        // 1. Reset BDR and Market Value to base values first
+        // We set BDR to 0 and Market Value back to the initial Auction Price
+        const players = await Player.find();
+        for (let p of players) {
+            p.bdrPoints = 0;
+            p.marketValue = p.auctionPrice || 0; // Starts fresh from what they were bought for
+            await p.save();
+        }
+
+        // 2. Identify target tournaments (Only Auction and Solo)
+        const targetTours = await Tournament.find({ 
+            type: { $in: ['auction', 'solo'] } 
+        });
+        const tourIds = targetTours.map(t => t._id);
+
+        // 3. Fetch completed matches only from these tours
+        const matches = await Fixture.find({ 
+            tourId: { $in: tourIds }, 
+            status: "Completed" 
+        });
+
+        // 4. Process matches and apply rewards
+        for (let m of matches) {
+            const tour = targetTours.find(t => t._id.toString() === m.tourId.toString());
+            const tType = tour.type;
+
+            const calcRewards = (s1, s2) => {
+                // Standard Logic: Win(+5/15M), Draw(+1/0M), Loss(-3/-10M) + Goals(+1/3M)
+                let bdr = (s1 > s2 ? 5 : (s1 === s2 ? 1 : -3)) + (s1 * 1);
+                let mv = (s1 > s2 ? 15 : (s1 === s2 ? 0 : -10)) + (s1 * 3);
+                let rankPts = (s1 > s2 ? 3 : (s1 === s2 ? 1 : 0));
+                return { bdr, mv, rankPts };
+            };
+
+            // Player A Update
+            const resA = calcRewards(m.scoreA, m.scoreB);
+            await Player.findOneAndUpdate({ name: m.playerA }, { $inc: { bdrPoints: resA.bdr, marketValue: resA.mv } });
+            
+            // Player B Update
+            const resB = calcRewards(m.scoreB, m.scoreA);
+            await Player.findOneAndUpdate({ name: m.playerB }, { $inc: { bdrPoints: resB.bdr, marketValue: resB.mv } });
+
+            // Sync Rankings (Golden Boot/Best Player) for these specific tours
+            await TourRank.findOneAndUpdate({ tour: tType, category: "best", playerName: m.playerA }, { $inc: { totalValue: resA.rankPts } }, { upsert: true });
+            await TourRank.findOneAndUpdate({ tour: tType, category: "boot", playerName: m.playerA }, { $inc: { totalValue: m.scoreA } }, { upsert: true });
+            await TourRank.findOneAndUpdate({ tour: tType, category: "best", playerName: m.playerB }, { $inc: { totalValue: resB.rankPts } }, { upsert: true });
+            await TourRank.findOneAndUpdate({ tour: tType, category: "boot", playerName: m.playerB }, { $inc: { totalValue: m.scoreB } }, { upsert: true });
+        }
+
+        res.json({ success: true, message: `Successfully synced rewards for ${matches.length} Pro-Tour matches. Quick Tour was excluded.` });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 
 
 const PORT = process.env.PORT || 5000;
