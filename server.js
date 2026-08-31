@@ -2463,31 +2463,36 @@ app.get('/api/smart/sync-pro-rewards', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
-// --- NEW: FETCH TEAM PROFILE BY UNIQUE MONGODB ID ---
+// --- SMART FETCH: HANDLES BOTH UNIQUE ID AND TEAM NAME ---
 app.get('/api/teams/profile-by-id/:id', async (req, res) => {
     try {
-        const id = req.params.id;
+        const input = req.params.id;
+        let team;
 
-        // 1. Find the team using its Unique MongoDB ID
-        const team = await mongoose.model('Team').findById(id);
-        if (!team) return res.status(404).json({ error: "Team not found in Auction Database" });
+        // 1. Try to find by MongoDB ID first (if the string is the right length)
+        if (input.match(/^[0-9a-fA-F]{24}$/)) {
+            team = await mongoose.model('Team').findById(input);
+        }
+
+        // 2. If not found by ID, search by Name (This fixes the "INTER MILAN" error)
+        if (!team) {
+            team = await mongoose.model('Team').findOne({ 
+                name: { $regex: new RegExp("^" + input + "$", "i") } 
+            });
+        }
+
+        if (!team) return res.status(404).json({ error: "Team not found in Database" });
 
         const teamName = team.name;
 
-        // 2. Find players assigned to this team name
-        const players = await mongoose.model('Player').find({ 
-            teamName: teamName 
-        });
-
-        // 3. Find match history for recent form
+        // 3. Fetch players and matches as usual
+        const players = await mongoose.model('Player').find({ teamName: teamName });
         const matches = await mongoose.model('Fixture').find({
             $or: [{ playerA: teamName }, { playerB: teamName }],
             status: "Completed"
         }).sort({ createdAt: -1 }).limit(10);
 
-        // 4. Fetch Trophies (Optional: only if you have a trophy collection)
-        // If you don't have this yet, it will just return an empty list
-        const trophies = []; 
+        const trophies = []; // Fetch from HofSeason if needed
 
         res.json({ 
             team: {
@@ -2501,8 +2506,8 @@ app.get('/api/teams/profile-by-id/:id', async (req, res) => {
         });
 
     } catch (err) {
-        console.error("Backend ID Error:", err);
-        res.status(500).json({ error: "Invalid Team ID format or database sync error" });
+        console.error("Backend Error:", err);
+        res.status(500).json({ error: "Internal Server Error" });
     }
 });
 
