@@ -2450,7 +2450,40 @@ app.get('/api/smart/sync-pro-rewards', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+// --- NEW: FETCH TEAM PROFILE BY UNIQUE MONGODB ID ---
+app.get('/api/teams/profile-by-id/:id', async (req, res) => {
+    try {
+        const id = req.params.id;
 
+        // 1. Find the team using its Unique ID
+        const team = await Team.findById(id);
+        if (!team) return res.status(404).json({ error: "Team not found" });
+
+        const teamName = team.name;
+
+        // 2. Find players who belong to this team name
+        const players = await Player.find({ teamName: teamName });
+
+        // 3. Find matches for this team (Recent Form)
+        const matches = await Fixture.find({
+            $or: [{ playerA: teamName }, { playerB: teamName }],
+            status: "Completed"
+        }).sort({ createdAt: -1 }).limit(10);
+
+        // 4. Find trophies from Hall of Fame
+        const hof = await HofSeason.find({ "trophyWinners.winner": teamName });
+        const trophies = [];
+        hof.forEach(season => {
+            season.trophyWinners.forEach(t => {
+                if(t.winner === teamName) trophies.push({ season: season.seasonName, title: t.title });
+            });
+        });
+
+        res.json({ team, players, matches, trophies });
+    } catch (err) {
+        res.status(500).json({ error: "Server Error: check if ID is valid" });
+    }
+});
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Admin Server running on ${PORT}`));
