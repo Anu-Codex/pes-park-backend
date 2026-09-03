@@ -2533,5 +2533,66 @@ app.get('/api/teams/profile-by-id/:id', async (req, res) => {
     }
 });
 
+// --- WALKOVER ROUTE (Main DB: Auction/Solo) ---
+app.put('/api/smart/walkover/:id', async (req, res) => {
+    try {
+        const { winner } = req.body; // 'A' or 'B'
+        const fixture = await Fixture.findById(req.params.id);
+        
+        if (!fixture) return res.status(404).json({ error: "Fixture not found" });
+
+        // 1. Assign standard Walkover Score (3-0)
+        const scoreA = (winner === 'A') ? 3 : 0;
+        const scoreB = (winner === 'B') ? 3 : 0;
+
+        // 2. Update Fixture
+        fixture.scoreA = scoreA;
+        fixture.scoreB = scoreB;
+        fixture.status = "Completed";
+        // Tag as walkover so it's clear in history
+        fixture.stage = (fixture.stage || "") + " (W/O)"; 
+        await fixture.save();
+
+        // 3. Trigger Reward Logic (Reusing your standard reward function)
+        // This will update BDR, Market Value, Standings, and Rankings
+        const tour = await Tournament.findById(fixture.tourId);
+        const tourType = tour ? tour.type : "auction";
+
+        const applyWalkoverRewards = async (pName, myS, oppS) => {
+            if (!pName) return;
+            const won = myS > oppS;
+            
+            // Standard Walkover Rewards: 
+            // Win: +5 BDR, +15M MV | Loss: -3 BDR, -10M MV
+            let bdrAdd = won ? 5 : -3;
+            let mvAdd = won ? 15 : -10;
+            let bpAdd = won ? 3 : 0;
+
+            // Update Global Stats
+            await Player.findOneAndUpdate({ name: pName }, { $inc: { bdrPoints: bdrAdd, marketValue: mvAdd } });
+
+            // Update Rankings
+            await TourRank.findOneAndUpdate(
+                { tour: tourType, category: "best", playerName: pName },
+                { $inc: { totalValue: bpAdd } }, { upsert: true }
+            );
+
+            // Update Points Table
+            const pts = won ? 3 : 0;
+            await Standing.findOneAndUpdate(
+                { tourId: fixture.tourId, participant: pName },
+                { $inc: { played: 1, wins: won?1:0, losses: won?0:1, gf: myS, ga: oppS, points: pts } }
+            );
+        };
+
+        await applyWalkoverRewards(fixture.playerA, scoreA, scoreB);
+        await applyWalkoverRewards(fixture.playerB, scoreB, scoreA);
+
+        res.json({ success: true, message: `Walkover awarded to Player ${winner}` });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Admin Server running on ${PORT}`));
