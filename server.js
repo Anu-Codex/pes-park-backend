@@ -2593,6 +2593,24 @@ app.put('/api/smart/walkover/:id', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+// --- RELEASE PLAYER ROUTE ---
+app.put('/api/players/:id/release', async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        // 1. Reset player to Free Agent status
+        await Player.findByIdAndUpdate(id, {
+            teamName: "",
+            teamLogo: "",
+            // Reset the auction-specific field to signify they are no longer owned
+            soldTo: "-" 
+        });
+
+        res.json({ success: true, message: "Player released successfully. They are now a Free Agent." });
+    } catch (err) {
+        res.status(500).json({ error: "Failed to release player: " + err.message });
+    }
+});
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Admin Server running on ${PORT}`));
