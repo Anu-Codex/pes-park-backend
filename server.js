@@ -2668,6 +2668,139 @@ app.put('/api/players/:id/sign-free-agent', async (req, res) => {
         res.status(500).json({ error: "Failed to sign player: " + err.message });
     }
 });
+// --- BEST PLAYER OF THE WEEK (POTW) LEADERBOARD ---
+app.get('/api/players/potw', async (req, res) => {
+    try {
+        const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+        const startOfToday = new Date();
+        startOfToday.setHours(0, 0, 0, 0);
+
+        // 1. Fetch completed matches in the last 7 days
+        const FixtureModel = mongoose.models.Fixture || mongoose.model('Fixture');
+        const matches = await FixtureModel.find({
+            status: "Completed",
+            createdAt: { $gte: sevenDaysAgo }
+        });
+
+        // Helper to calculate standings from a match subset
+        const calculateStandings = (matchList) => {
+            const stats = {};
+            matchList.forEach(m => {
+                const pA = m.playerA;
+                const pB = m.playerB;
+                if (!pA || !pB) return;
+
+                if (!stats[pA]) stats[pA] = { name: pA, wins: 0, draws: 0, losses: 0, gf: 0, ga: 0, points: 0, matches: 0 };
+                if (!stats[pB]) stats[pB] = { name: pB, wins: 0, draws: 0, losses: 0, gf: 0, ga: 0, points: 0, matches: 0 };
+
+                const sA = Number(m.scoreA) || 0;
+                const sB = Number(m.scoreB) || 0;
+
+                stats[pA].gf += sA;
+                stats[pA].ga += sB;
+                stats[pA].matches += 1;
+
+                stats[pB].gf += sB;
+                stats[pB].ga += sA;
+                stats[pB].matches += 1;
+
+                if (sA > sB) {
+                    stats[pA].wins += 1;
+                    stats[pA].points += 3;
+                    stats[pB].losses += 1;
+                } else if (sA === sB) {
+                    stats[pA].draws += 1;
+                    stats[pA].points += 1;
+                    stats[pB].draws += 1;
+                    stats[pB].points += 1;
+                } else {
+                    stats[pB].wins += 1;
+                    stats[pB].points += 3;
+                    stats[pA].losses += 1;
+                }
+            });
+
+            return Object.values(stats).sort((a, b) => 
+                b.points - a.points || 
+                b.wins - a.wins || 
+                (b.gf - b.ga) - (a.gf - a.ga) || 
+                b.gf - a.gf || 
+                a.matches - b.matches
+            );
+        };
+
+        // 2. Current 7-day standings
+        const currentStandings = calculateStandings(matches);
+
+        // 3. Standings before today (to calculate ▲/▼/NEW deltas)
+        const previousMatches = matches.filter(m => new Date(m.createdAt) < startOfToday);
+        const previousStandings = calculateStandings(previousMatches);
+        const prevRankMap = {};
+        previousStandings.forEach((p, idx) => {
+            prevRankMap[p.name] = idx + 1;
+        });
+
+        // 4. Fetch player profiles for images & team names
+        const PlayerModel = mongoose.models.Player || mongoose.model('Player');
+        const playerNames = currentStandings.map(s => s.name);
+        const playerProfiles = await PlayerModel.find({ name: { $in: playerNames } });
+        const profileMap = {};
+        playerProfiles.forEach(p => {
+            profileMap[p.name] = p;
+        });
+
+        // 5. Build final leaderboard (Top 15)
+        const leaderboard = currentStandings.slice(0, 15).map((s, idx) => {
+            const currentRank = idx + 1;
+            const prevRank = prevRankMap[s.name];
+
+            let deltaType = 'none'; // 'new', 'up', 'down', 'same'
+            let deltaValue = 0;
+
+            if (!prevRank) {
+                deltaType = 'new';
+            } else if (currentRank < prevRank) {
+                deltaType = 'up';
+                deltaValue = prevRank - currentRank;
+            } else if (currentRank > prevRank) {
+                deltaType = 'down';
+                deltaValue = currentRank - prevRank;
+            } else {
+                deltaType = 'same';
+            }
+
+            const profile = profileMap[s.name];
+
+            return {
+                rank: currentRank,
+                deltaType,
+                deltaValue,
+                name: s.name,
+                image: profile && profile.image ? profile.image : '',
+                teamName: profile && profile.teamName ? profile.teamName : 'No team',
+                playerId: profile ? profile._id : null,
+                points: s.points,
+                wins: s.wins,
+                draws: s.draws,
+                losses: s.losses,
+                totalMatches: s.matches
+            };
+        });
+
+        // Formatted timestamp (e.g. 05:23 pm)
+        const now = new Date();
+        const updatedTime = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }).toLowerCase();
+
+        res.json({
+            updatedAt: updatedTime,
+            leaderboard
+        });
+
+    } catch (err) {
+        console.error("POTW Error:", err);
+        res.status(500).json({ error: "Failed to generate POTW leaderboard" });
+    }
+});
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Admin Server running on ${PORT}`));
