@@ -2611,6 +2611,63 @@ app.put('/api/players/:id/release', async (req, res) => {
         res.status(500).json({ error: "Failed to release player: " + err.message });
     }
 });
+// --- SIGN FREE AGENT DIRECTLY TO A TEAM ---
+app.put('/api/players/:id/sign-free-agent', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { teamName, signingFee } = req.body;
+
+        if (!teamName) {
+            return res.status(400).json({ error: "Target team name is required." });
+        }
+
+        // 1. Fetch team details to grab official logo
+        const TeamModel = mongoose.models.Team || mongoose.model('Team');
+        const team = await TeamModel.findOne({ 
+            name: { $regex: new RegExp("^" + teamName.trim() + "$", "i") } 
+        });
+
+        const officialTeamName = team ? team.name : teamName.trim();
+        const teamLogo = team ? (team.logo || team.logoUrl || "") : "";
+        const fee = Number(signingFee) || 0;
+
+        // 2. Update player in the main Player collection
+        const updatedPlayer = await Player.findByIdAndUpdate(
+            id,
+            {
+                teamName: officialTeamName,
+                teamLogo: teamLogo,
+                soldTo: `${officialTeamName} (${fee}M)`
+            },
+            { new: true }
+        );
+
+        if (!updatedPlayer) {
+            return res.status(404).json({ error: "Player not found." });
+        }
+
+        // 3. Keep raw auction collection in sync (if sharing DB)
+        try {
+            const rawPlayers = mongoose.connection.db.collection('players');
+            await rawPlayers.updateOne(
+                { name: { $regex: new RegExp("^" + updatedPlayer.name + "$", "i") } },
+                { $set: { soldTo: `${officialTeamName} (${fee}M)` } }
+            );
+        } catch (syncErr) {
+            console.log("Auction DB raw sync note:", syncErr.message);
+        }
+
+        res.json({
+            success: true,
+            message: `✅ ${updatedPlayer.name} is now officially assigned to ${officialTeamName}!`,
+            player: updatedPlayer
+        });
+
+    } catch (err) {
+        console.error("Free Agent Sign Error:", err);
+        res.status(500).json({ error: "Failed to sign player: " + err.message });
+    }
+});
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Admin Server running on ${PORT}`));
