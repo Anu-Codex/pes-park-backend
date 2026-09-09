@@ -2669,7 +2669,7 @@ app.put('/api/players/:id/sign-free-agent', async (req, res) => {
     }
 });
 // --- BEST PLAYER OF THE WEEK (POTW) LEADERBOARD ---
-app.get('/api/players/potw', async (req, res) => {
+app.get('/api/potw/weekly', async (req, res) => {
     try {
         const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
         const startOfToday = new Date();
