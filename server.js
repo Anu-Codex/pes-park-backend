@@ -83,6 +83,7 @@ const PlayerSchema = new mongoose.Schema({
     auctionPrice: { type: Number, default: 0 },
     marketValue: { type: Number, default: 0 },
     bdrPoints: { type: Number, default: 0 },
+    soloBdrPoints: { type: Number, default: 0 },
     squadImage: String,
 
     // Match Records (Structured for H2H calculation)
@@ -1444,9 +1445,17 @@ const applyRewards = async (pName, myScore, oppScore, tourType, tourId, isSubFix
             date: new Date()
         };
 
-        await Player.findByIdAndUpdate(player._id, { 
-            $inc: { marketValue: mvAdd, bdrPoints: bdrAdd },
-            $push: { matches: { $each: [matchEntry], $position: 0 } } 
+        const statsToInc = {};
+        if (tourType === 'solo') {
+            statsToInc.soloBdrPoints = bdrAdd;
+        } else {
+            statsToInc.bdrPoints = bdrAdd;
+            statsToInc.marketValue = mvAdd;
+        }
+
+        await Player.findByIdAndUpdate(player._id, {
+            $inc: statsToInc,
+            $push: { matches: { $each: [matchEntry], $position: 0 } }
         });
         
         console.log(`Individual rewards applied to ${pName} (${subFlag ? 'Sub-Match' : 'Solo'})`);
@@ -2799,6 +2808,73 @@ app.get('/api/potw/weekly', async (req, res) => {
     } catch (err) {
         console.error("POTW Error:", err);
         res.status(500).json({ error: "Failed to generate POTW leaderboard" });
+    }
+});
+// --- SEPARATE BDR: DEDUCT SOLO FROM AUCTION & REBUILD CLEANLY ---
+app.get('/api/bdr/isolate-auction', async (req, res) => {
+    try {
+        // 1. Reset all BDR values to 0 before rebuilding
+        await Player.updateMany({}, { $set: { bdrPoints: 0, soloBdrPoints: 0 } });
+
+        // 2. Fetch all completed fixtures and tournaments
+        const completedFixtures = await Fixture.find({ status: "Completed" });
+        const tournaments = await Tournament.find();
+
+        const tourTypeMap = {};
+        tournaments.forEach(t => {
+            tourTypeMap[String(t._id)] = t.type; // 'auction', 'solo', etc.
+        });
+
+        const auctionPoints = {};
+        const soloPoints = {};
+
+        const calcBdr = (s1, s2) => {
+            let pts = (s1 > s2 ? 5 : (s1 === s2 ? 1 : -3)) + (s1 * 1);
+            return pts;
+        };
+
+        // 3. Process every match based strictly on tournament type
+        for (const m of completedFixtures) {
+            const type = tourTypeMap[String(m.tourId)];
+
+            if (type === 'auction') {
+                auctionPoints[m.playerA] = (auctionPoints[m.playerA] || 0) + calcBdr(m.scoreA, m.scoreB);
+                auctionPoints[m.playerB] = (auctionPoints[m.playerB] || 0) + calcBdr(m.scoreB, m.scoreA);
+            } else if (type === 'solo') {
+                soloPoints[m.playerA] = (soloPoints[m.playerA] || 0) + calcBdr(m.scoreA, m.scoreB);
+                soloPoints[m.playerB] = (soloPoints[m.playerB] || 0) + calcBdr(m.scoreB, m.scoreA);
+            }
+        }
+
+        // 4. Update Player records
+        for (const [name, pts] of Object.entries(auctionPoints)) {
+            await Player.findOneAndUpdate({ name }, { $set: { bdrPoints: pts } });
+        }
+        for (const [name, pts] of Object.entries(soloPoints)) {
+            await Player.findOneAndUpdate({ name }, { $set: { soloBdrPoints: pts } });
+        }
+
+        res.json({
+            success: true,
+            message: "BDR points separated successfully! Old BDR now holds Auction only. Solo BDR isolated.",
+            auctionPlayersUpdated: Object.keys(auctionPoints).length,
+            soloPlayersUpdated: Object.keys(soloPoints).length
+        });
+    } catch (err) {
+        console.error("BDR Isolate Error:", err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// --- GET GLOBAL SOLO BDR RANKINGS ---
+app.get('/api/bdr/solo-global', async (req, res) => {
+    try {
+        const players = await Player.find({}, 'name image teamName teamLogo soloBdrPoints')
+            .sort({ soloBdrPoints: -1 })
+            .limit(50);
+        res.json(players);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
 });
 
