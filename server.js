@@ -2896,20 +2896,24 @@ app.get('/api/bdr/solo-global', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
-// --- REPLACE PLAYER INSIDE A SPECIFIC TOURNAMENT ---
+// --- REPLACE PLAYER (WITH ID AUTO-CONVERSION) ---
 app.put('/api/smart/replace-player', async (req, res) => {
     try {
-        const { tourId, oldPlayerName, newPlayerName } = req.body;
+        let { tourId, oldPlayerName, newPlayerName } = req.body;
 
         if (!tourId || !oldPlayerName || !newPlayerName) {
             return res.status(400).json({ error: "Tournament, Current Player, and New Player are required." });
         }
 
-        if (oldPlayerName.trim() === newPlayerName.trim()) {
-            return res.status(400).json({ error: "Old player and new player cannot be the same person." });
+        // 👉 SAFEGUARD: If newPlayerName is an _id, resolve it to their actual name
+        if (newPlayerName.match(/^[0-9a-fA-F]{24}$/)) {
+            const realPlayer = await Player.findById(newPlayerName);
+            if (realPlayer) {
+                newPlayerName = realPlayer.name;
+            }
         }
 
-        // 1. Update the Tournament's participant list
+        // 1. Update Tournament participants
         const tour = await Tournament.findById(tourId);
         if (!tour) return res.status(404).json({ error: "Tournament not found." });
 
@@ -2918,17 +2922,16 @@ app.put('/api/smart/replace-player', async (req, res) => {
             tour.participants[pIdx] = newPlayerName;
             await tour.save();
         } else {
-            // If old name wasn't in array, ensure the new player is registered
             await Tournament.findByIdAndUpdate(tourId, { $addToSet: { participants: newPlayerName } });
         }
 
-        // 2. Update the Points Table (Standings) for this tournament
+        // 2. Update Standing (Points Table)
         await Standing.findOneAndUpdate(
             { tourId: tourId, participant: oldPlayerName },
             { $set: { participant: newPlayerName } }
         );
 
-        // 3. Update all Fixtures belonging to this tournament
+        // 3. Update Fixtures
         await Fixture.updateMany(
             { tourId: tourId, playerA: oldPlayerName },
             { $set: { playerA: newPlayerName } }
@@ -2938,23 +2941,14 @@ app.put('/api/smart/replace-player', async (req, res) => {
             { $set: { playerB: newPlayerName } }
         );
 
-        // 4. Update Tournament Ranking records (Best Player & Golden Boot) if any
-        if (mongoose.models.TourRank) {
-            await mongoose.models.TourRank.updateMany(
-                { tour: tour.type, playerName: oldPlayerName },
-                { $set: { playerName: newPlayerName } }
-            );
-        }
-
         res.json({
             success: true,
-            message: `✅ Successfully replaced ${oldPlayerName} with ${newPlayerName} in ${tour.name}!`
+            message: `✅ Replaced with ${newPlayerName} successfully!`
         });
     } catch (err) {
         console.error("Replace Player Error:", err);
         res.status(500).json({ error: err.message });
     }
 });
-
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Admin Server running on ${PORT}`));
