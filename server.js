@@ -128,6 +128,25 @@ const PlayerSchema = new mongoose.Schema({
 
 const Player = mongoose.model('Player', PlayerSchema);
 
+// DELETE TOURNAMENT + ALL ITS FIXTURES & STANDINGS
+app.delete('/api/smart/tournament/:id', async (req, res) => {
+    try {
+        const tourId = req.params.id;
+
+        // 1. Delete the Tournament document
+        await Tournament.findByIdAndDelete(tourId);
+
+        // 2. Delete all Fixtures belonging to this tour
+        await Fixture.deleteMany({ tourId: tourId });
+
+        // 3. Delete Standings (Points table) belonging to this tour
+        await Standing.deleteMany({ tourId: tourId });
+
+        res.json({ success: true, message: "Tournament and all associated data deleted." });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 // GET Single Player by ID
 app.get('/api/players/:id', async (req, res) => {
     const player = await Player.findById(req.params.id);
