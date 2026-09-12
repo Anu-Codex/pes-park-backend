@@ -2896,6 +2896,65 @@ app.get('/api/bdr/solo-global', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+// --- REPLACE PLAYER INSIDE A SPECIFIC TOURNAMENT ---
+app.put('/api/smart/replace-player', async (req, res) => {
+    try {
+        const { tourId, oldPlayerName, newPlayerName } = req.body;
+
+        if (!tourId || !oldPlayerName || !newPlayerName) {
+            return res.status(400).json({ error: "Tournament, Current Player, and New Player are required." });
+        }
+
+        if (oldPlayerName.trim() === newPlayerName.trim()) {
+            return res.status(400).json({ error: "Old player and new player cannot be the same person." });
+        }
+
+        // 1. Update the Tournament's participant list
+        const tour = await Tournament.findById(tourId);
+        if (!tour) return res.status(404).json({ error: "Tournament not found." });
+
+        const pIdx = tour.participants.indexOf(oldPlayerName);
+        if (pIdx !== -1) {
+            tour.participants[pIdx] = newPlayerName;
+            await tour.save();
+        } else {
+            // If old name wasn't in array, ensure the new player is registered
+            await Tournament.findByIdAndUpdate(tourId, { $addToSet: { participants: newPlayerName } });
+        }
+
+        // 2. Update the Points Table (Standings) for this tournament
+        await Standing.findOneAndUpdate(
+            { tourId: tourId, participant: oldPlayerName },
+            { $set: { participant: newPlayerName } }
+        );
+
+        // 3. Update all Fixtures belonging to this tournament
+        await Fixture.updateMany(
+            { tourId: tourId, playerA: oldPlayerName },
+            { $set: { playerA: newPlayerName } }
+        );
+        await Fixture.updateMany(
+            { tourId: tourId, playerB: oldPlayerName },
+            { $set: { playerB: newPlayerName } }
+        );
+
+        // 4. Update Tournament Ranking records (Best Player & Golden Boot) if any
+        if (mongoose.models.TourRank) {
+            await mongoose.models.TourRank.updateMany(
+                { tour: tour.type, playerName: oldPlayerName },
+                { $set: { playerName: newPlayerName } }
+            );
+        }
+
+        res.json({
+            success: true,
+            message: `✅ Successfully replaced ${oldPlayerName} with ${newPlayerName} in ${tour.name}!`
+        });
+    } catch (err) {
+        console.error("Replace Player Error:", err);
+        res.status(500).json({ error: err.message });
+    }
+});
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Admin Server running on ${PORT}`));
