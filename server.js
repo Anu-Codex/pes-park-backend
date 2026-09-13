@@ -2950,5 +2950,200 @@ app.put('/api/smart/replace-player', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+
+// --- UCL (ULTIMATE CHAMPIONS LEAGUE) CONFIG SCHEMA ---
+const UclConfigSchema = new mongoose.Schema({
+    seasonName: { type: String, default: "UCL Season 1" },
+    qualifyingTourIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Tournament' }],
+    activeUclTourId: { type: mongoose.Schema.Types.ObjectId, ref: 'Tournament' },
+    rankSnapshots: [{ playerName: String, rank: Number }] // For calculating ▲ / ▼ rank deltas
+});
+const UclConfig = mongoose.models.UclConfig || mongoose.model('UclConfig', UclConfigSchema);
+
+// 1. GET ALL UCL DATA (Top 36 Leaderboard + Linked Leagues + Main UCL Data)
+app.get('/api/ucl/hub', async (req, res) => {
+    try {
+        let config = await UclConfig.findOne();
+        if (!config) {
+            config = await UclConfig.create({ qualifyingTourIds: [] });
+        }
+
+        // A. Fetch All Selected Qualifying Solo Tours
+        const TourModel = mongoose.models.Tournament || mongoose.model('Tournament');
+        const StandingModel = mongoose.models.Standing || mongoose.model('Standing');
+        const FixtureModel = mongoose.models.Fixture || mongoose.model('Fixture');
+        const PlayerModel = mongoose.models.Player || mongoose.model('Player');
+        const TourRankModel = mongoose.models.TourRank || mongoose.model('TourRank');
+
+        const qualifyingTours = await TourModel.find({ _id: { $in: config.qualifyingTourIds } });
+
+        // B. Aggregate Standings from all Qualifying Tours
+        const allStandings = await StandingModel.find({ tourId: { $in: config.qualifyingTourIds } });
+
+        // Merge stats per player across all qualifying solo leagues
+        const aggregatedMap = {};
+        for (let s of allStandings) {
+            const pName = s.participant;
+            if (!aggregatedMap[pName]) {
+                aggregatedMap[pName] = {
+                    name: pName,
+                    played: 0,
+                    wins: 0,
+                    draws: 0,
+                    losses: 0,
+                    gf: 0,
+                    ga: 0,
+                    points: 0,
+                    originLeagues: []
+                };
+            }
+            aggregatedMap[pName].played += (s.played || 0);
+            aggregatedMap[pName].wins += (s.wins || 0);
+            aggregatedMap[pName].draws += (s.draws || 0);
+            aggregatedMap[pName].losses += (s.losses || 0);
+            aggregatedMap[pName].gf += (s.gf || 0);
+            aggregatedMap[pName].ga += (s.ga || 0);
+            aggregatedMap[pName].points += (s.points || 0);
+
+            const tourObj = qualifyingTours.find(t => String(t._id) === String(s.tourId));
+            if (tourObj && !aggregatedMap[pName].originLeagues.includes(tourObj.name)) {
+                aggregatedMap[pName].originLeagues.push(tourObj.name);
+            }
+        }
+
+        // C. Sort to get Top 36 players
+        const sortedRoster = Object.values(aggregatedMap).sort((a, b) => 
+            b.points - a.points || 
+            (b.gf - b.ga) - (a.gf - a.ga) || 
+            b.gf - a.gf || 
+            b.wins - a.wins
+        );
+
+        // Fetch Player Avatars & Teams
+        const top36Names = sortedRoster.slice(0, 36).map(p => p.name);
+        const playerProfiles = await PlayerModel.find({ name: { $in: top36Names } });
+        const profileMap = {};
+        playerProfiles.forEach(p => { profileMap[p.name] = p; });
+
+        // Build Rank Snapshot Map for ▲/▼/NEW calculation
+        const prevRanks = {};
+        (config.rankSnapshots || []).forEach(snap => {
+            prevRanks[snap.playerName] = snap.rank;
+        });
+
+        const top36 = sortedRoster.slice(0, 36).map((p, idx) => {
+            const currentRank = idx + 1;
+            const prev = prevRanks[p.name];
+            let deltaType = 'same';
+            let deltaVal = 0;
+
+            if (!prev) {
+                deltaType = 'new';
+            } else if (currentRank < prev) {
+                deltaType = 'up';
+                deltaVal = prev - currentRank;
+            } else if (currentRank > prev) {
+                deltaType = 'down';
+                deltaVal = currentRank - prev;
+            }
+
+            const prof = profileMap[p.name];
+            return {
+                ...p,
+                rank: currentRank,
+                deltaType,
+                deltaVal,
+                image: prof ? prof.image : '',
+                teamName: prof ? prof.teamName : 'Free Agent',
+                playerId: prof ? prof._id : null
+            };
+        });
+
+        // D. Fetch Main UCL Event Data (If linked)
+        let uclMainData = { tour: null, standings: [], fixtures: [], scorers: [] };
+        if (config.activeUclTourId) {
+            const uclTour = await TourModel.findById(config.activeUclTourId);
+            const uclStandings = await StandingModel.find({ tourId: config.activeUclTourId });
+            const uclFixtures = await FixtureModel.find({ tourId: config.activeUclTourId }).sort({ createdAt: -1 });
+            const uclScorers = await TourRankModel.find({ tour: 'ucl', category: 'boot' }).sort({ totalValue: -1 });
+
+            uclMainData = {
+                tour: uclTour,
+                standings: uclStandings,
+                fixtures: uclFixtures,
+                scorers: uclScorers
+            };
+        }
+
+        res.json({
+            seasonName: config.seasonName,
+            qualifyingTours,
+            top36,
+            uclMainData
+        });
+    } catch (err) {
+        console.error("UCL Hub Error:", err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 2. ADD / REMOVE QUALIFYING SOLO TOURS (Dashboard)
+app.post('/api/ucl/admin/manage-pool', async (req, res) => {
+    try {
+        const { tourId, action } = req.body; // action = 'add' or 'remove'
+        let config = await UclConfig.findOne();
+        if (!config) config = await UclConfig.create({ qualifyingTourIds: [] });
+
+        if (action === 'add') {
+            await UclConfig.updateOne({}, { $addToSet: { qualifyingTourIds: tourId } });
+        } else if (action === 'remove') {
+            await UclConfig.updateOne({}, { $pull: { qualifyingTourIds: tourId } });
+        }
+        res.json({ success: true, message: `Pool updated successfully.` });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 3. SET MAIN UCL TOURNAMENT ID (Dashboard)
+app.post('/api/ucl/admin/set-main-tour', async (req, res) => {
+    try {
+        const { uclTourId, seasonName } = req.body;
+        await UclConfig.findOneAndUpdate(
+            {}, 
+            { activeUclTourId: uclTourId, ...(seasonName && { seasonName }) }, 
+            { upsert: true }
+        );
+        res.json({ success: true, message: "Main UCL Tournament linked!" });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 4. LOCK SNAPSHOT FOR RANK DELTA (Dashboard)
+app.post('/api/ucl/admin/snapshot-ranks', async (req, res) => {
+    try {
+        const config = await UclConfig.findOne();
+        if (!config) return res.status(400).json({ error: "Config not found" });
+
+        const StandingModel = mongoose.models.Standing || mongoose.model('Standing');
+        const standings = await StandingModel.find({ tourId: { $in: config.qualifyingTourIds } });
+        
+        // Aggregate
+        const map = {};
+        standings.forEach(s => {
+            map[s.participant] = (map[s.participant] || 0) + (s.points || 0);
+        });
+
+        const sorted = Object.entries(map).sort((a,b) => b[1] - a[1]).slice(0, 36);
+        const snaps = sorted.map(([name], idx) => ({ playerName: name, rank: idx + 1 }));
+
+        config.rankSnapshots = snaps;
+        await config.save();
+        res.json({ success: true, message: `Snapshot locked for ${snaps.length} players!` });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Admin Server running on ${PORT}`));
