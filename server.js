@@ -3266,5 +3266,29 @@ app.get('/api/sync/solo-to-player-history', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+// --- FETCH PLAYER PROFILE WITH POPULATED TOURNAMENT DATA ---
+app.get('/api/players/profile/:id', async (req, res) => {
+    try {
+        const player = await Player.findById(req.params.id);
+        if (!player) return res.status(404).json({ message: "Player not found" });
+
+        const pNameRegex = new RegExp('^' + player.name.trim() + '$', 'i');
+
+        // 1. Fetch completed matches and populate the tournament name & type
+        const FixtureModel = mongoose.models.Fixture || mongoose.model('Fixture');
+        const matches = await FixtureModel.find({
+            $or: [{ playerA: pNameRegex }, { playerB: pNameRegex }],
+            status: { $regex: new RegExp('^completed$', 'i') }
+        })
+        .populate('tourId', 'name type') // 👈 This gives the tournament name to each match
+        .sort({ createdAt: -1 })
+        .lean();
+
+        res.json({ player, matches });
+    } catch (err) {
+        console.error("Profile Fetch Error:", err);
+        res.status(500).json({ error: err.message });
+    }
+});
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Admin Server running on ${PORT}`));
