@@ -3180,5 +3180,91 @@ app.post('/api/celebration/publish', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+// --- MIGRATE & SYNC OLD SOLO MATCHES INTO PLAYER HISTORY ---
+app.get('/api/sync/solo-to-player-history', async (req, res) => {
+    try {
+        const FixtureModel = mongoose.models.Fixture || mongoose.model('Fixture');
+        const SoloFixtureModel = mongoose.models.SoloFixture;
+        let importedCount = 0;
+
+        // 1. Copy legacy SoloFixture records into main Fixture
+        if (SoloFixtureModel) {
+            const legacySoloMatches = await SoloFixtureModel.find({
+                status: { $regex: new RegExp('^completed$', 'i') }
+            });
+
+            for (let sm of legacySoloMatches) {
+                const exists = await FixtureModel.findOne({
+                    playerA: { $regex: new RegExp('^' + sm.playerA.trim() + '$', 'i') },
+                    playerB: { $regex: new RegExp('^' + sm.playerB.trim() + '$', 'i') },
+                    scoreA: sm.scoreA,
+                    scoreB: sm.scoreB
+                });
+
+                if (!exists) {
+                    await FixtureModel.create({
+                        playerA: sm.playerA,
+                        playerB: sm.playerB,
+                        scoreA: sm.scoreA,
+                        scoreB: sm.scoreB,
+                        status: "Completed",
+                        stage: "Solo Tour",
+                        createdAt: sm.createdAt || new Date()
+                    });
+                    importedCount++;
+                }
+            }
+        }
+
+        // 2. Ensure both Player A and Player B have the match in their matches array
+        const allCompleted = await FixtureModel.find({
+            status: { $regex: new RegExp('^completed$', 'i') }
+        });
+
+        let profileSyncCount = 0;
+        for (let fix of allCompleted) {
+            const updatePlayerMatchArray = async (playerName, oppName, myScore, oppScore) => {
+                const p = await Player.findOne({ name: { $regex: new RegExp('^' + playerName.trim() + '$', 'i') } });
+                if (!p) return;
+
+                const alreadyRecorded = (p.matches || []).some(m => 
+                    m.opponentName?.toLowerCase() === oppName?.toLowerCase() &&
+                    m.myScore === myScore &&
+                    m.oppScore === oppScore
+                );
+
+                if (!alreadyRecorded) {
+                    const resType = myScore > oppScore ? "WIN" : (myScore === oppScore ? "DRAW" : "LOSS");
+                    await Player.findByIdAndUpdate(p._id, {
+                        $push: {
+                            matches: {
+                                $each: [{
+                                    opponentName: oppName,
+                                    myScore: myScore,
+                                    oppScore: oppScore,
+                                    result: resType,
+                                    date: fix.createdAt || new Date()
+                                }],
+                                $position: 0
+                            }
+                        }
+                    });
+                    profileSyncCount++;
+                }
+            };
+
+            await updatePlayerMatchArray(fix.playerA, fix.playerB, fix.scoreA, fix.scoreB);
+            await updatePlayerMatchArray(fix.playerB, fix.playerA, fix.scoreB, fix.scoreA);
+        }
+
+        res.json({
+            success: true,
+            message: `Migration Successful! Imported ${importedCount} legacy matches and updated ${profileSyncCount} player histories.`
+        });
+    } catch (err) {
+        console.error("Migration Error:", err);
+        res.status(500).json({ error: err.message });
+    }
+});
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Admin Server running on ${PORT}`));
