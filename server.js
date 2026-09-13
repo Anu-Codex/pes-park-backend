@@ -3145,5 +3145,40 @@ app.post('/api/ucl/admin/snapshot-ranks', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+// --- CHAMPION CELEBRATION CARD SCHEMA ---
+const celebrationSchema = new mongoose.Schema({
+    trophyTitle: { type: String, default: "WEEKLY WINNER" },
+    trophyImage: { type: String, default: "https://i.postimg.cc/qvqPB29Q/232667-removebg-preview.png" },
+    playerName: { type: String, required: true },
+    playerImage: { type: String, default: "" },
+    teamName: { type: String, default: "Nexus Legends" },
+    teamLogo: { type: String, default: "" },
+    themeColor: { type: String, default: "#ff003c" }, // Red, Blue, Gold depending on team
+    scorerStats: { type: String, default: "" }, // e.g. "Sidhu — 17 goals"
+    createdAt: { type: Date, default: Date.now }
+});
+
+const Celebration = mongoose.models.Celebration || mongoose.model('Celebration', celebrationSchema);
+
+// 1. GET LATEST CELEBRATION (Called by index.html for new visitors)
+app.get('/api/celebration/latest', async (req, res) => {
+    try {
+        const latest = await Celebration.findOne().sort({ createdAt: -1 });
+        res.json(latest || null);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 2. PUBLISH CELEBRATION FROM DASHBOARD
+app.post('/api/celebration/publish', async (req, res) => {
+    try {
+        const newCard = new Celebration(req.body);
+        await newCard.save();
+        res.json({ success: true, message: "Celebration Banner Launched to all new visitors!" });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Admin Server running on ${PORT}`));
