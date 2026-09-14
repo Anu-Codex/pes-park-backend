@@ -3290,5 +3290,119 @@ app.get('/api/players/profile/:id', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+// --- SYNC ALL SOLO MATCHES & UPDATE GLOBAL SOLO BDR RANKINGS ---
+app.get('/api/bdr/sync-solo', async (req, res) => {
+    try {
+        console.log("⚡ Starting Global Solo BDR recalculation...");
+
+        // 1. Reset all players' soloBdrPoints to 0 before rebuilding
+        await Player.updateMany({}, { $set: { soloBdrPoints: 0 } });
+
+        // 2. Identify all Solo Tournaments
+        const TournamentModel = mongoose.models.Tournament || mongoose.model('Tournament');
+        const soloTours = await TournamentModel.find({
+            $or: [
+                { type: 'solo' },
+                { type: { $regex: new RegExp('^solo', 'i') } }
+            ]
+        });
+        const soloTourIds = soloTours.map(t => t._id);
+
+        // 3. Fetch all completed fixtures for Solo Tours
+        const FixtureModel = mongoose.models.Fixture || mongoose.model('Fixture');
+        const soloMatches = await FixtureModel.find({
+            tourId: { $in: soloTourIds },
+            status: { $regex: new RegExp('^completed$', 'i') }
+        });
+
+        // 4. Fetch legacy SoloFixture matches (if any exist)
+        let legacyMatches = [];
+        const SoloFixtureModel = mongoose.models.SoloFixture;
+        if (SoloFixtureModel) {
+            legacyMatches = await SoloFixtureModel.find({
+                status: { $regex: new RegExp('^completed$', 'i') }
+            });
+        }
+
+        const allCompletedSolo = [...soloMatches, ...legacyMatches];
+        console.log(`Found ${allCompletedSolo.length} completed Solo matches to process.`);
+
+        // 5. Calculate Solo BDR points per player
+        // Formula: Win = +5, Draw = +1, Loss = -3 (+ 1 pt per goal scored)
+        const soloPointsMap = {};
+        const soloGoalsMap = {};
+        const soloWinsMap = {};
+
+        for (const m of allCompletedSolo) {
+            const pA = m.playerA ? m.playerA.trim() : null;
+            const pB = m.playerB ? m.playerB.trim() : null;
+            if (!pA || !pB) continue;
+
+            const sA = Number(m.scoreA) || 0;
+            const sB = Number(m.scoreB) || 0;
+
+            const bdrA = (sA > sB ? 5 : (sA === sB ? 1 : -3)) + (sA * 1);
+            const bdrB = (sB > sA ? 5 : (sB === sA ? 1 : -3)) + (sB * 1);
+
+            soloPointsMap[pA] = (soloPointsMap[pA] || 0) + bdrA;
+            soloPointsMap[pB] = (soloPointsMap[pB] || 0) + bdrB;
+
+            soloGoalsMap[pA] = (soloGoalsMap[pA] || 0) + sA;
+            soloGoalsMap[pB] = (soloGoalsMap[pB] || 0) + sB;
+
+            if (sA > sB) soloWinsMap[pA] = (soloWinsMap[pA] || 0) + 1;
+            if (sB > sA) soloWinsMap[pB] = (soloWinsMap[pB] || 0) + 1;
+        }
+
+        // 6. Update Player collection with new soloBdrPoints
+        let updatedCount = 0;
+        for (const [playerName, totalPts] of Object.entries(soloPointsMap)) {
+            const updateResult = await Player.findOneAndUpdate(
+                { name: { $regex: new RegExp('^' + playerName + '$', 'i') } },
+                { $set: { soloBdrPoints: totalPts } }
+            );
+            if (updateResult) updatedCount++;
+        }
+
+        // 7. Sync Solo Tour Rankings (Golden Boot & Best Player Ratings)
+        const TourRankModel = mongoose.models.TourRank || mongoose.model('TourRank');
+        if (TourRankModel) {
+            await TourRankModel.deleteMany({ tour: 'solo' });
+
+            for (const [name, goals] of Object.entries(soloGoalsMap)) {
+                const playerDoc = await Player.findOne({ name: { $regex: new RegExp('^' + name + '$', 'i') } });
+                await TourRankModel.create({
+                    tour: 'solo',
+                    category: 'boot',
+                    playerName: name,
+                    teamName: playerDoc ? playerDoc.teamName : 'Free Agent',
+                    totalValue: goals
+                });
+            }
+
+            for (const [name, pts] of Object.entries(soloPointsMap)) {
+                const playerDoc = await Player.findOne({ name: { $regex: new RegExp('^' + name + '$', 'i') } });
+                await TourRankModel.create({
+                    tour: 'solo',
+                    category: 'best',
+                    playerName: name,
+                    teamName: playerDoc ? playerDoc.teamName : 'Free Agent',
+                    totalValue: pts
+                });
+            }
+        }
+
+        res.json({
+            success: true,
+            message: `Global Solo BDR Synced! Processed ${allCompletedSolo.length} matches across ${updatedCount} players.`,
+            totalMatches: allCompletedSolo.length,
+            playersUpdated: updatedCount
+        });
+
+    } catch (err) {
+        console.error("Solo BDR Sync Error:", err);
+        res.status(500).json({ error: err.message });
+    }
+});
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Admin Server running on ${PORT}`));
