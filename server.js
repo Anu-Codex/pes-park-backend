@@ -3404,5 +3404,77 @@ app.get('/api/bdr/sync-solo', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+// --- 1. GET ALL AVAILABLE TROPHY TYPES (Core + Custom) ---
+app.get('/api/trophies/all-types', async (req, res) => {
+    try {
+        const coreTrophies = [
+            { key: 'ballonDor', label: "Ballon d'Or" },
+            { key: 'quickTour', label: "Quick Tour Champion" },
+            { key: 'soloBoot', label: "Solo Golden Boot" },
+            { key: 'auctionBoot', label: "Auction Golden Boot" },
+            { key: 'ucl', label: "UCL Best Player" },
+            { key: 'weekly', label: "Weekly Star" }
+        ];
+
+        // Fetch custom trophies defined via dashboard
+        const TrophyType = mongoose.models.TrophyType || mongoose.model('TrophyType', new mongoose.Schema({ name: String, image: String }));
+        const customTrophies = await TrophyType.find().lean();
+        const customFormatted = customTrophies.map(c => ({ key: c.name, label: c.name }));
+
+        res.json([...coreTrophies, ...customFormatted]);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// --- 2. GET TROPHY LEADERBOARD (Ranked winners for selected trophy) ---
+app.get('/api/trophies/leaderboard', async (req, res) => {
+    try {
+        const { type } = req.query;
+        if (!type) return res.status(400).json({ error: "Trophy type required" });
+
+        const PlayerModel = mongoose.models.Player || mongoose.model('Player');
+        const players = await PlayerModel.find().lean();
+        let leaderboard = [];
+
+        const coreKeys = ['ballonDor', 'quickTour', 'soloBoot', 'auctionBoot', 'ucl', 'league', 'weekly', 'goldenBoot'];
+
+        if (coreKeys.includes(type)) {
+            // Count from player.trophies object
+            leaderboard = players
+                .filter(p => p.trophies && (p.trophies[type] || 0) > 0)
+                .map(p => ({
+                    _id: p._id,
+                    name: p.name,
+                    image: p.image || '',
+                    teamName: p.teamName || 'Free Agent',
+                    teamLogo: p.teamLogo || '',
+                    count: p.trophies[type]
+                }))
+                .sort((a, b) => b.count - a.count);
+        } else {
+            // Count from customTrophies array awarded to players
+            leaderboard = players
+                .map(p => {
+                    const customList = p.customTrophies || [];
+                    const matches = customList.filter(t => t.name.toLowerCase() === type.toLowerCase());
+                    return {
+                        _id: p._id,
+                        name: p.name,
+                        image: p.image || '',
+                        teamName: p.teamName || 'Free Agent',
+                        teamLogo: p.teamLogo || '',
+                        count: matches.length
+                    };
+                })
+                .filter(p => p.count > 0)
+                .sort((a, b) => b.count - a.count);
+        }
+
+        res.json(leaderboard);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Admin Server running on ${PORT}`));
