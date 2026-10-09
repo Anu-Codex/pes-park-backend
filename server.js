@@ -1007,6 +1007,7 @@ const fixtureSchema = new mongoose.Schema({
     scoreB: { type: Number, default: 0 },
     status: { type: String, default: "Upcoming" },
     stage: { type: String, default: "League" },
+    syncedToStats: { type: Boolean, default: false },
     isSubFixture: { type: Boolean, default: false }, // Must be Boolean
     parentFixtureId: { type: String, default: null }, // ID of the Team Match
     createdAt: { type: Date, default: Date.now }
@@ -3473,6 +3474,136 @@ app.get('/api/trophies/leaderboard', async (req, res) => {
 
         res.json(leaderboard);
     } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+// ==========================================
+// BUTTON 1: MASTER RECALCULATE (AUCTION ONLY)
+// ==========================================
+app.get('/api/auction/sync-master', async (req, res) => {
+    try {
+        console.log("⚡ Running Master Auction Recalculation...");
+
+        // 1. Reset all players' auction stats to baseline
+        const players = await Player.find();
+        for (let p of players) {
+            p.bdrPoints = 0;
+            p.marketValue = p.auctionPrice || 0;
+            p.seasonStats = { wins: 0, draws: 0, losses: 0, goals: 0 };
+            await p.save();
+        }
+
+        // 2. Find all tournaments of type 'auction'
+        const TournamentModel = mongoose.models.Tournament || mongoose.model('Tournament');
+        const auctionTours = await TournamentModel.find({ type: 'auction' });
+        const tourIds = auctionTours.map(t => t._id);
+
+        // 3. Find all completed fixtures for auction tours
+        const FixtureModel = mongoose.models.Fixture || mongoose.model('Fixture');
+        const matches = await FixtureModel.find({ tourId: { $in: tourIds }, status: "Completed" });
+
+        for (let m of matches) {
+            const processMatch = async (pName, s1, s2) => {
+                if (!pName) return;
+                const p = await Player.findOne({ name: { $regex: new RegExp('^' + pName.trim() + '$', 'i') } });
+                if (!p) return;
+
+                let bdrAdd = (s1 > s2 ? 5 : (s1 === s2 ? 1 : -3)) + (s1 * 1);
+                let mvAdd = (s1 > s2 ? 15 : (s1 === s2 ? 0 : -10)) + (s1 * 3);
+                let wins = s1 > s2 ? 1 : 0;
+                let draws = s1 === s2 ? 1 : 0;
+                let losses = s1 < s2 ? 1 : 0;
+
+                p.bdrPoints += bdrAdd;
+                p.marketValue += mvAdd;
+                p.seasonStats.wins += wins;
+                p.seasonStats.draws += draws;
+                p.seasonStats.losses += losses;
+                p.seasonStats.goals += Number(s1);
+                await p.save();
+            };
+
+            await processMatch(m.playerA, m.scoreA, m.scoreB);
+            await processMatch(m.playerB, m.scoreB, m.scoreA);
+
+            // Mark match as synced
+            m.syncedToStats = true;
+            await m.save();
+        }
+
+        res.json({ 
+            success: true, 
+            message: `Master Auction Sync complete! Rebuilt stats from ${matches.length} completed matches.` 
+        });
+    } catch (err) {
+        console.error("Master Sync Error:", err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ==========================================
+// BUTTON 2: INCREMENTAL SYNC (NEW/UN-SYNCED ONLY)
+// ==========================================
+app.get('/api/auction/sync-incremental', async (req, res) => {
+    try {
+        console.log("⚡ Running Incremental Auction Sync...");
+
+        const TournamentModel = mongoose.models.Tournament || mongoose.model('Tournament');
+        const auctionTours = await TournamentModel.find({ type: 'auction' });
+        const tourIds = auctionTours.map(t => t._id);
+
+        const FixtureModel = mongoose.models.Fixture || mongoose.model('Fixture');
+        
+        // Find completed matches that have NOT been synced yet
+        const newMatches = await FixtureModel.find({ 
+            tourId: { $in: tourIds }, 
+            status: "Completed",
+            $or: [{ syncedToStats: false }, { syncedToStats: { $exists: false } }]
+        });
+
+        if (newMatches.length === 0) {
+            return res.json({ success: true, message: "No new auction matches to sync." });
+        }
+
+        for (let m of newMatches) {
+            const processMatch = async (pName, s1, s2) => {
+                if (!pName) return;
+                const p = await Player.findOne({ name: { $regex: new RegExp('^' + pName.trim() + '$', 'i') } });
+                if (!p) return;
+
+                let bdrAdd = (s1 > s2 ? 5 : (s1 === s2 ? 1 : -3)) + (s1 * 1);
+                let mvAdd = (s1 > s2 ? 15 : (s1 === s2 ? 0 : -10)) + (s1 * 3);
+                let wins = s1 > s2 ? 1 : 0;
+                let draws = s1 === s2 ? 1 : 0;
+                let losses = s1 < s2 ? 1 : 0;
+
+                // Safely increment existing stats without wiping anything
+                await Player.findByIdAndUpdate(p._id, {
+                    $inc: {
+                        bdrPoints: bdrAdd,
+                        marketValue: mvAdd,
+                        "seasonStats.wins": wins,
+                        "seasonStats.draws": draws,
+                        "seasonStats.losses": losses,
+                        "seasonStats.goals": Number(s1)
+                    }
+                });
+            };
+
+            await processMatch(m.playerA, m.scoreA, m.scoreB);
+            await processMatch(m.playerB, m.scoreB, m.scoreA);
+
+            // Lock this match so it doesn't double-sync next time
+            m.syncedToStats = true;
+            await m.save();
+        }
+
+        res.json({ 
+            success: true, 
+            message: `Incremental Sync complete! Added stats for ${newMatches.length} new/updated matches.` 
+        });
+    } catch (err) {
+        console.error("Incremental Sync Error:", err);
         res.status(500).json({ error: err.message });
     }
 });
