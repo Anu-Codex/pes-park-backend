@@ -3607,5 +3607,99 @@ app.get('/api/auction/sync-incremental', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+// --- GIVEAWAY TOURNAMENT SCHEMA ---
+const giveawaySchema = new mongoose.Schema({
+    code: { type: String, required: true, unique: true },
+    name: { type: String, required: true },
+    whatsapp: { type: String, required: true },
+    ytLink: { type: String, default: "" },
+    ytScreenshot: { type: String, required: true },
+    waLink: { type: String, default: "" },
+    waScreenshot: { type: String, required: true },
+    status: { type: String, default: "Under Review" }, // Under Review, Approved, Rejected
+    createdAt: { type: Date, default: Date.now }
+});
+
+const GiveawayApp = mongoose.models.GiveawayApp || mongoose.model('GiveawayApp', giveawaySchema);
+
+// 1. SUBMIT APPLICATION (Generates Unique Code)
+app.post('/api/giveaway/apply', async (req, res) => {
+    try {
+        const { name, whatsapp, ytLink, ytScreenshot, waLink, waScreenshot } = req.body;
+
+        if (!name || !whatsapp || !ytScreenshot || !waScreenshot) {
+            return res.status(400).json({ error: "Name, WhatsApp, and both screenshots are required." });
+        }
+
+        // Generate Unique Code e.g. NXLS-4829
+        const randomNum = Math.floor(1000 + Math.random() * 9000);
+        const code = `NXLS-${randomNum}`;
+
+        const newApp = new GiveawayApp({
+            code,
+            name: name.trim(),
+            whatsapp: whatsapp.trim(),
+            ytLink: ytLink || "",
+            ytScreenshot,
+            waLink: waLink || "",
+            waScreenshot,
+            status: "Under Review"
+        });
+
+        await newApp.save();
+        res.json({ success: true, code: code, message: "Slot application submitted successfully!" });
+    } catch (err) {
+        console.error("Giveaway Apply Error:", err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 2. CHECK STATUS BY CODE (Public)
+app.get('/api/giveaway/status/:code', async (req, res) => {
+    try {
+        const code = req.params.code.toUpperCase().trim();
+        const appRecord = await GiveawayApp.findOne({ code });
+
+        if (!appRecord) {
+            return res.status(404).json({ error: "Invalid confirmation code. Please check and try again." });
+        }
+
+        res.json({ success: true, record: appRecord });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 3. ADMIN: GET ALL APPLICATIONS (Dashboard)
+app.get('/api/giveaway/admin/all', async (req, res) => {
+    try {
+        const apps = await GiveawayApp.find().sort({ createdAt: -1 });
+        res.json(apps);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 4. ADMIN: UPDATE STATUS (Approve / Reject)
+app.put('/api/giveaway/admin/status/:id', async (req, res) => {
+    try {
+        const { status } = req.body; // "Approved" or "Rejected"
+        if (!['Under Review', 'Approved', 'Rejected'].includes(status)) {
+            return res.status(400).json({ error: "Invalid status value." });
+        }
+
+        const updated = await GiveawayApp.findByIdAndUpdate(
+            req.params.id,
+            { status },
+            { new: true }
+        );
+
+        if (!updated) return res.status(404).json({ error: "Application not found." });
+
+        res.json({ success: true, message: `Application status updated to ${status}!` });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Admin Server running on ${PORT}`));
