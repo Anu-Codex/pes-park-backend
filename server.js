@@ -1401,7 +1401,7 @@ app.put('/api/smart/register-player', async (req, res) => {
 // 1. Route to CREATE a fixture (Used by Dashboard)
 app.post('/api/smart/create-fixture', async (req, res) => {
     try {
-        const { tourId, playerA, playerB, isSubFixture, parentFixtureId, stage } = req.body;
+        const { tourId, playerA, playerB, type, isSubFixture, parentFixtureId, stage, group } = req.body;
         
         const newFixture = new Fixture({
             tourId,
@@ -1409,7 +1409,8 @@ app.post('/api/smart/create-fixture', async (req, res) => {
             playerB,
             isSubFixture: isSubFixture || false,
             parentFixtureId: parentFixtureId || null,
-            stage: stage || "League",
+            type: type || "League",
+            stage: stage || "",
             status: "Upcoming"
         });
 
