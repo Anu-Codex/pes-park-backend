@@ -1300,6 +1300,7 @@ const TournamentSchema = new mongoose.Schema({
     type: String, // solo, auction, quick, weekend
     name: String, // e.g., "Pro League Season 1"
     participants: [String], // Array of player or team names
+    isLocked: { type: Boolean, default: false },
     createdAt: { type: Date, default: Date.now }
 });
 const Tournament = mongoose.model('Tournament', TournamentSchema);
@@ -1484,7 +1485,7 @@ const applyRewards = async (pName, myScore, oppScore, tourType, tourId, isSubFix
 
     // 3. LOGIC: Update Point Table (Standing) if it's NOT a sub-fixture 
     // (Main team matches update the table; individual sub-matches do not)
-    if (subFlag === false) {
+    if (subFlag === false && !isTableLocked) {
         const pts = (myScore > oppScore) ? 3 : (myScore === oppScore ? 1 : 0);
         await Standing.findOneAndUpdate(
             { tourId: tourId, participant: pName },
@@ -1498,6 +1499,26 @@ const applyRewards = async (pName, myScore, oppScore, tourType, tourId, isSubFix
         );
     }
 };
+// 1. ROUTE TO LOCK / UNLOCK A TOURNAMENT TABLE
+app.put('/api/smart/tournaments/:id/lock', async (req, res) => {
+    try {
+        const { isLocked } = req.body;
+        const tour = await Tournament.findByIdAndUpdate(
+            req.params.id, 
+            { isLocked: isLocked }, 
+            { new: year = true }
+        );
+
+        if (!tour) return res.status(404).json({ error: "Tournament not found." });
+
+        res.json({ 
+            success: true, 
+            message: `Points table for "${tour.name}" is now ${isLocked ? 'LOCKED 🔒 (Frozen)' : 'UNLOCKED 🔓 (Active)'}` 
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 
 // 2. THE UPDATED SCORE UPDATE ROUTE
 app.put('/api/smart/update-score/:id', async (req, res) => {
@@ -1509,24 +1530,27 @@ app.put('/api/smart/update-score/:id', async (req, res) => {
         if (stage) fixture.stage = stage;
 
         // --- CRITICAL FIX: PREVENT DOUBLE COUNTING ---
-        // If the match was already completed, do NOT run applyRewards again.
         if (fixture.status === "Completed") {
             return res.status(400).json({ error: "This match is already recorded. To change the score, delete and recreate it." });
         }
 
         const tour = await Tournament.findById(fixture.tourId);
         const tourType = tour ? tour.type : "auction";
+        const isTableLocked = tour ? (tour.isLocked || false) : false; // 👈 Check if table is locked
 
         fixture.scoreA = Number(scoreA);
         fixture.scoreB = Number(scoreB);
         fixture.status = "Completed"; // Lock the match
         await fixture.save();
 
-        // Process rewards
-        await applyRewards(fixture.playerA, scoreA, scoreB, tourType, fixture.tourId, fixture.isSubFixture, fixture.playerB);
-        await applyRewards(fixture.playerB, scoreB, scoreA, tourType, fixture.tourId, fixture.isSubFixture, fixture.playerA);
+        // Process rewards (Pass `isTableLocked` to applyRewards)
+        await applyRewards(fixture.playerA, scoreA, scoreB, tourType, fixture.tourId, fixture.isSubFixture, fixture.playerB, isTableLocked);
+        await applyRewards(fixture.playerB, scoreB, scoreA, tourType, fixture.tourId, fixture.isSubFixture, fixture.playerA, isTableLocked);
 
-        res.json({ success: true, message: "Score Locked & Stats Updated!" });
+        res.json({ 
+            success: true, 
+            message: isTableLocked ? "Score Locked! (Points Table is Frozen 🔒)" : "Score Locked & Stats Updated!" 
+        });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
