@@ -1446,6 +1446,10 @@ const applyRewards = async (pName, myScore, oppScore, tourType, tourId, isSubFix
     // Fix: Handle cases where isSubFixture might come as a string "true"
     const subFlag = String(isSubFixture) === "true";
 
+    // --- CHECK IF TOURNAMENT TABLE IS LOCKED ---
+    const tour = await Tournament.findById(tourId);
+    const isTableLocked = tour ? (tour.isLocked || false) : false;
+
     // 1. Find the Player in the database
     const player = await Player.findOne({ name: { $regex: new RegExp('^' + pName.trim() + '$', 'i') } });
     
@@ -1483,8 +1487,7 @@ const applyRewards = async (pName, myScore, oppScore, tourType, tourId, isSubFix
         console.log(`Individual rewards applied to ${pName} (${subFlag ? 'Sub-Match' : 'Solo'})`);
     }
 
-    // 3. LOGIC: Update Point Table (Standing) if it's NOT a sub-fixture 
-    // (Main team matches update the table; individual sub-matches do not)
+    // 3. LOGIC: Update Point Table (Standing) if it's NOT a sub-fixture AND table is NOT locked
     if (subFlag === false && !isTableLocked) {
         const pts = (myScore > oppScore) ? 3 : (myScore === oppScore ? 1 : 0);
         await Standing.findOneAndUpdate(
@@ -1495,8 +1498,12 @@ const applyRewards = async (pName, myScore, oppScore, tourType, tourId, isSubFix
                 draws: myScore === oppScore ? 1 : 0, 
                 losses: myScore < oppScore ? 1 : 0, 
                 gf: Number(myScore), ga: Number(oppScore), points: pts 
-            }}
+            }},
+            { upsert: true }
         );
+        console.log(`[Table Updated] Points added for ${pName}`);
+    } else if (subFlag === false && isTableLocked) {
+        console.log(`[Table Frozen 🔒] Points table update skipped for ${pName} (Tournament is locked).`);
     }
 };
 // 1. ROUTE TO LOCK / UNLOCK A TOURNAMENT TABLE
