@@ -1008,6 +1008,7 @@ const fixtureSchema = new mongoose.Schema({
     status: { type: String, default: "Upcoming" },
     stage: { type: String, default: "League" },
     syncedToStats: { type: Boolean, default: false },
+    ignoreInStandings: { type: Boolean, default: false },
     isSubFixture: { type: Boolean, default: false }, // Must be Boolean
     parentFixtureId: { type: String, default: null }, // ID of the Team Match
     createdAt: { type: Date, default: Date.now }
@@ -1616,7 +1617,11 @@ app.get('/api/smart/recalculate-table/:tourId', async (req, res) => {
         await Standing.insertMany(initialStandings);
 
         // 4. FETCH all completed matches for this tour
-        const matches = await Fixture.find({ tourId, status: "Completed" });
+        const matches = await Fixture.find({ 
+    tourId, 
+    status: "Completed", 
+    ignoreInStandings: { $ne: true } // 👈 SKIPS IGNORED MATCHES
+});
 
         for (let m of matches) {
             // --- CRITICAL FIX: IGNORE MEMBER MATCHES ---
@@ -1645,6 +1650,15 @@ app.get('/api/smart/recalculate-table/:tourId', async (req, res) => {
         res.json({ success: true, message: "Table rebuilt! Corrupted data removed." });
     } catch (err) {
         console.error(err);
+        res.status(500).json({ error: err.message });
+    }
+});
+app.put('/api/smart/fixtures/:id/ignore', async (req, res) => {
+    try {
+        const { ignoreInStandings } = req.body;
+        await Fixture.findByIdAndUpdate(req.params.id, { ignoreInStandings });
+        res.json({ success: true, message: "Match standings status updated." });
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
