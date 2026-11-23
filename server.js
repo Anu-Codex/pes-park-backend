@@ -3798,5 +3798,141 @@ app.get('/api/admin/rebuild-archive-from-players', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+// --- MERGE TWO PLAYER PROFILES ---
+app.post('/api/players/merge', async (req, res) => {
+    try {
+        const { keepPlayerId, duplicatePlayerId } = req.body;
+
+        if (!keepPlayerId || !duplicatePlayerId) {
+            return res.status(400).json({ success: false, error: "Both primary and duplicate player IDs are required." });
+        }
+        if (keepPlayerId === duplicatePlayerId) {
+            return res.status(400).json({ success: false, error: "Cannot merge a player with themselves." });
+        }
+
+        const PlayerModel = mongoose.models.Player || mongoose.model('Player');
+        const keepPlayer = await PlayerModel.findById(keepPlayerId);
+        const dupPlayer = await PlayerModel.findById(duplicatePlayerId);
+
+        if (!keepPlayer || !dupPlayer) {
+            return res.status(404).json({ success: false, error: "One or both players not found in database." });
+        }
+
+        const oldName = dupPlayer.name;
+        const newName = keepPlayer.name;
+
+        // 1. Merge Match History (Combine and deduplicate based on opponent, scores, and date)
+        const combinedMatches = [...(keepPlayer.matches || []), ...(dupPlayer.matches || [])];
+        const seenMatches = new Set();
+        keepPlayer.matches = combinedMatches.filter(m => {
+            const key = `${m.opponentName}_${m.myScore}_${m.oppScore}_${new Date(m.date || m.createdAt).toDateString()}`;
+            if (seenMatches.has(key)) return false;
+            seenMatches.add(key);
+            return true;
+        });
+
+        // 2. Merge Season Stats (Sum them up)
+        keepPlayer.seasonStats.wins = (keepPlayer.seasonStats?.wins || 0) + (dupPlayer.seasonStats?.wins || 0);
+        keepPlayer.seasonStats.draws = (keepPlayer.seasonStats?.draws || 0) + (dupPlayer.seasonStats?.draws || 0);
+        keepPlayer.seasonStats.losses = (keepPlayer.seasonStats?.losses || 0) + (dupPlayer.seasonStats?.losses || 0);
+        keepPlayer.seasonStats.goals = (keepPlayer.seasonStats?.goals || 0) + (dupPlayer.seasonStats?.goals || 0);
+
+        // 3. Merge Trophies (Core counts)
+        const kTrop = keepPlayer.trophies || {};
+        const dTrop = dupPlayer.trophies || {};
+        keepPlayer.trophies = {
+            ballonDor: (kTrop.ballonDor || 0) + (dTrop.ballonDor || 0),
+            quickTour: (kTrop.quickTour || 0) + (dTrop.quickTour || 0),
+            soloBoot: (kTrop.soloBoot || 0) + (dTrop.soloBoot || 0),
+            auctionBoot: (kTrop.auctionBoot || 0) + (dTrop.auctionBoot || 0),
+            ucl: (kTrop.ucl || 0) + (dTrop.ucl || 0),
+            league: (kTrop.league || 0) + (dTrop.league || 0),
+            weekly: (kTrop.weekly || 0) + (dTrop.weekly || 0),
+            goldenBoot: (kTrop.goldenBoot || 0) + (dTrop.goldenBoot || 0)
+        };
+
+        // Combine custom trophies arrays
+        keepPlayer.customTrophies = [...(keepPlayer.customTrophies || []), ...(dupPlayer.customTrophies || [])];
+
+        // 4. Combine Financials & Points
+        keepPlayer.auctionPrice = Math.max(keepPlayer.auctionPrice || 0, dupPlayer.auctionPrice || 0);
+        keepPlayer.marketValue = Math.max(keepPlayer.marketValue || 0, dupPlayer.marketValue || 0);
+        keepPlayer.bdrPoints = (keepPlayer.bdrPoints || 0) + (dupPlayer.bdrPoints || 0);
+        keepPlayer.soloBdrPoints = (keepPlayer.soloBdrPoints || 0) + (dupPlayer.soloBdrPoints || 0);
+        
+        // Take duplicate's image or team if keeper is empty
+        if (!keepPlayer.image && dupPlayer.image) keepPlayer.image = dupPlayer.image;
+        if (!keepPlayer.squadImage && dupPlayer.squadImage) keepPlayer.squadImage = dupPlayer.squadImage;
+        if ((!keepPlayer.teamName || keepPlayer.teamName === "Free Agent") && dupPlayer.teamName && dupPlayer.teamName !== "Free Agent") {
+            keepPlayer.teamName = dupPlayer.teamName;
+            keepPlayer.teamLogo = dupPlayer.teamLogo;
+        }
+
+        await keepPlayer.save();
+
+        // 5. Cascade Update across all fixtures, standings, and tournaments (Rename old duplicate name to primary name)
+        if (oldName && newName && oldName.toLowerCase() !== newName.toLowerCase()) {
+            const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const oldRegex = new RegExp('^' + escapeRegex(oldName.trim()) + '$', 'i');
+            const db = mongoose.connection.db;
+
+            await db.collection('fixtures').updateMany({ playerA: oldRegex }, { $set: { playerA: newName } });
+            await db.collection('fixtures').updateMany({ playerB: oldRegex }, { $set: { playerB: newName } });
+            await db.collection('standings').updateMany({ participant: oldRegex }, { $set: { participant: newName } });
+            
+            const tours = await db.collection('tournaments').find({ participants: oldRegex }).toArray();
+            for (let t of tours) {
+                const newParts = t.participants.map(p => oldRegex.test(p) ? newName : p);
+                await db.collection('tournaments').updateOne({ _id: t._id }, { $set: { participants: newParts } });
+            }
+
+            if (mongoose.models.TourRank) {
+                await mongoose.models.TourRank.updateMany({ playerName: oldRegex }, { $set: { playerName: newName } });
+            }
+            if (mongoose.models.SoloFixture) {
+                await mongoose.models.SoloFixture.updateMany({ playerA: oldRegex }, { $set: { playerA: newName } });
+                await mongoose.models.SoloFixture.updateMany({ playerB: oldRegex }, { $set: { playerB: newName } });
+            }
+        }
+
+        // 6. Delete the Duplicate Player profile
+        await PlayerModel.findByIdAndDelete(duplicatePlayerId);
+
+        console.log(`🔗 [Player Merge] Successfully merged "${oldName}" into "${newName}".`);
+        res.json({
+            success: true,
+            message: `Successfully merged "${oldName}" into "${newName}". Duplicate profile deleted.`
+        });
+
+    } catch (err) {
+        console.error("Merge Error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+// --- RESET SEASON FINANCIALS & BDR TO 0 ---
+app.put('/api/danger/reset-season-financials', async (req, res) => {
+    try {
+        const PlayerModel = mongoose.models.Player || mongoose.model('Player');
+
+        // Reset all player financials and BDR counters to 0
+        const result = await PlayerModel.updateMany({}, {
+            $set: {
+                bdrPoints: 0,
+                soloBdrPoints: 0,
+                marketValue: 0,
+                auctionPrice: 0
+            }
+        });
+
+        console.log(`🧹 [Season Reset] Wiped financial/BDR stats for ${result.modifiedCount} players.`);
+        res.json({
+            success: true,
+            message: `Successfully reset Ballon d'Or points, Market Value, and Auction Price to 0 for all players!`
+        });
+    } catch (err) {
+        console.error("Season Reset Error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Admin Server running on ${PORT}`));
