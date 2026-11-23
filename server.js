@@ -85,6 +85,9 @@ const PlayerSchema = new mongoose.Schema({
     bdrPoints: { type: Number, default: 0 },
     soloBdrPoints: { type: Number, default: 0 },
     squadImage: String,
+    // Disciplinary Cards
+    yellowCards: { type: Number, default: 0 },
+    redCards: { type: Number, default: 0 },
 
     // Match Records (Structured for H2H calculation)
     matches: [{
@@ -3932,6 +3935,44 @@ app.put('/api/danger/reset-season-financials', async (req, res) => {
     } catch (err) {
         console.error("Season Reset Error:", err);
         res.status(500).json({ success: false, error: err.message });
+    }
+});
+// --- ISSUE DISCIPLINARY CARD & APPLY BDR PENALTY ---
+app.put('/api/players/:id/issue-card', async (req, res) => {
+    try {
+        const { cardType } = req.body; // 'yellow' or 'red'
+        if (!['yellow', 'red'].includes(cardType)) {
+            return res.status(400).json({ error: "Invalid card type." });
+        }
+
+        const PlayerModel = mongoose.models.Player || mongoose.model('Player');
+        const player = await PlayerModel.findById(req.params.id);
+
+        if (!player) return res.status(404).json({ error: "Player not found." });
+
+        let penalty = 0;
+        if (cardType === 'yellow') {
+            player.yellowCards = (player.yellowCards || 0) + 1;
+            penalty = 5;
+            // Deduct 5 BDR points (preventing negative points)
+            player.bdrPoints = Math.max(0, (player.bdrPoints || 0) - 5);
+        } else if (cardType === 'red') {
+            player.redCards = (player.redCards || 0) + 1;
+            penalty = 15;
+            // Deduct 15 BDR points
+            player.bdrPoints = Math.max(0, (player.bdrPoints || 0) - 15);
+        }
+
+        await player.save();
+
+        res.json({
+            success: true,
+            message: `Issued 1 ${cardType.toUpperCase()} Card to ${player.name}. (-${penalty} BDR penalty applied).`,
+            player
+        });
+    } catch (err) {
+        console.error("Issue Card Error:", err);
+        res.status(500).json({ error: err.message });
     }
 });
 const PORT = process.env.PORT || 5000;
