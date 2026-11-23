@@ -3975,5 +3975,88 @@ app.put('/api/players/:id/issue-card', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+// ==========================================
+// 1. RESET ALL PLAYERS TO FREE AGENT
+// ==========================================
+app.put('/api/danger/reset-all-player-teams', async (req, res) => {
+    try {
+        const PlayerModel = mongoose.models.Player || mongoose.model('Player');
+        
+        // Clear team data from all community players
+        await PlayerModel.updateMany({}, {
+            $set: { 
+                teamName: "Free Agent", 
+                teamLogo: "", 
+                soldTo: "-" 
+            }
+        });
+
+        // Also sync with raw auction collection if shared
+        try {
+            const rawPlayers = mongoose.connection.db.collection('players');
+            await rawPlayers.updateMany({}, { $set: { soldTo: "-" } });
+        } catch(e) {}
+
+        res.json({ 
+            success: true, 
+            message: "All players successfully reset to Free Agents! Ready for National Teams." 
+        });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// ==========================================
+// 2. ENHANCED NATIONAL TEAM & LOGO SYNC
+// ==========================================
+app.get('/api/danger/import-team-data', async (req, res) => {
+    try {
+        const PlayerModel = mongoose.models.Player || mongoose.model('Player');
+        const pesPlayers = await PlayerModel.find();
+        
+        const AuctionPlayers = mongoose.connection.db.collection('players');
+        const AuctionTeams = mongoose.connection.db.collection('teams');
+        let count = 0;
+
+        for (let p of pesPlayers) {
+            // Find player in auction DB by name
+            const aPlayer = await AuctionPlayers.findOne({ 
+                name: { $regex: new RegExp("^" + p.name.trim() + "$", "i") } 
+            });
+
+            if (aPlayer && aPlayer.soldTo && aPlayer.soldTo !== '-' && aPlayer.soldTo !== 'UNSOLD') {
+                // Extract National Team Name e.g. "Argentina (50M)" -> "Argentina"
+                const teamName = aPlayer.soldTo.split(' (')[0].trim();
+                
+                // Fetch National Team Logo
+                const teamInfo = await AuctionTeams.findOne({ 
+                    name: { $regex: new RegExp("^" + teamName + "$", "i") } 
+                });
+                const teamLogo = teamInfo ? (teamInfo.logo || teamInfo.logoUrl || "") : "";
+
+                await PlayerModel.findByIdAndUpdate(p._id, { 
+                    teamName: teamName,
+                    teamLogo: teamLogo,
+                    soldTo: aPlayer.soldTo
+                });
+                count++;
+            } else {
+                // If unsold in national auction, remain Free Agent
+                await PlayerModel.findByIdAndUpdate(p._id, { 
+                    teamName: "Free Agent",
+                    teamLogo: "",
+                    soldTo: "-"
+                });
+            }
+        }
+
+        res.json({ 
+            success: true, 
+            message: `Successfully synced National Teams and logos for ${count} players!` 
+        });
+    } catch (err) { 
+        res.status(500).json({ error: err.message }); 
+    }
+});
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Admin Server running on ${PORT}`));
