@@ -3747,5 +3747,56 @@ app.put('/api/giveaway/admin/status/:id', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+// --- RESCUE DELETED TEAMS FROM PLAYER PROFILES ---
+app.get('/api/admin/rebuild-archive-from-players', async (req, res) => {
+    try {
+        const db = mongoose.connection.db;
+        const PlayerModel = mongoose.models.Player || mongoose.model('Player');
+
+        // 1. Find all players who have a team name assigned
+        const players = await PlayerModel.find({
+            teamName: { $exists: true, $ne: "", $ne: "Free Agent" }
+        }).lean();
+
+        // 2. Map unique team names and grab their logos from player profiles
+        const teamMap = {};
+        players.forEach(p => {
+            const tName = p.teamName.trim();
+            const tLogo = p.teamLogo ? p.teamLogo.trim() : "";
+            
+            if (tName) {
+                if (!teamMap[tName] || (tLogo && !teamMap[tName].includes('http'))) {
+                    teamMap[tName] = tLogo; // Keep the best logo found
+                }
+            }
+        });
+
+        let recoveredCount = 0;
+
+        // 3. Insert into the historical_teams archive
+        for (const [name, logo] of Object.entries(teamMap)) {
+            const exists = await db.collection('historical_teams').findOne({ 
+                name: { $regex: new RegExp("^" + name + "$", "i") } 
+            });
+
+            if (!exists) {
+                await db.collection('historical_teams').insertOne({
+                    name: name,
+                    logo: logo || 'https://via.placeholder.com/100',
+                    recoveredAt: new Date()
+                });
+                recoveredCount++;
+            }
+        }
+
+        res.json({
+            success: true,
+            message: `Successfully rescued! Reconstructed ${recoveredCount} deleted club teams from player profiles into the archive.`
+        });
+    } catch (err) {
+        console.error("Rescue Error:", err);
+        res.status(500).json({ error: err.message });
+    }
+});
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Admin Server running on ${PORT}`));
