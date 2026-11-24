@@ -4235,5 +4235,35 @@ app.get('/api/danger/inspect-all-db', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+// --- INSPECT HISTORIES & CHATS FOR RECOVERY ---
+app.get('/api/danger/inspect-auction-logs', async (req, res) => {
+    try {
+        const db = mongoose.connection.db;
+        
+        // 1. Grab latest 25 auction history records
+        const latestHistories = await db.collection('histories').find({}).sort({ _id: -1 }).limit(25).toArray();
+        
+        // 2. Grab latest 35 chat logs (to see if bids/sales were logged here)
+        const latestChats = await db.collection('chats').find({}).sort({ _id: -1 }).limit(35).toArray();
+        
+        // 3. Check a few players' status & fields
+        const samplePlayers = await db.collection('players').find({ status: { $exists: true } }).limit(10).toArray();
+
+        res.json({
+            latestHistories,
+            latestChats,
+            samplePlayers: samplePlayers.map(p => ({
+                name: p.name,
+                status: p.status,
+                baseValue: p.baseValue,
+                auctionPrice: p.auctionPrice,
+                marketValue: p.marketValue,
+                soldTo: p.soldTo
+            }))
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Admin Server running on ${PORT}`));
