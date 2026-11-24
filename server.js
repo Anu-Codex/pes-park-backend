@@ -4265,5 +4265,111 @@ app.get('/api/danger/inspect-auction-logs', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+// --- 1. GET ALL 82+ SOLD PLAYERS + RECOVERED PRICES FROM HISTORIES ---
+app.get('/api/danger/recovery-workspace', async (req, res) => {
+    try {
+        const db = mongoose.connection.db;
+
+        // Fetch ALL Sold players (No limit!)
+        const soldPlayers = await db.collection('players').find({
+            status: { $regex: new RegExp("^sold$", "i") }
+        }).toArray();
+
+        // Fetch ALL histories sorted newest first to get exact latest auction prices
+        const allHistories = await db.collection('histories').find({}).sort({ _id: -1 }).toArray();
+        
+        // Map latest price by playerName
+        const latestPriceMap = {};
+        for (let h of allHistories) {
+            if (h.playerName) {
+                const key = h.playerName.trim().toLowerCase();
+                if (latestPriceMap[key] === undefined) {
+                    latestPriceMap[key] = h.price;
+                }
+            }
+        }
+
+        // Fetch all active teams
+        const teams = await db.collection('teams').find({}).toArray();
+
+        // Combine player info with their recovered history price
+        const playersList = soldPlayers.map(p => {
+            const key = p.name.trim().toLowerCase();
+            const historyPrice = latestPriceMap[key];
+            return {
+                _id: p._id,
+                name: p.name,
+                recoveredPrice: historyPrice !== undefined ? historyPrice : (p.auctionPrice || p.baseValue || 0),
+                oldAuctionPrice: p.auctionPrice || 0,
+                currentTeam: p.teamName && p.teamName !== "Free Agent" ? p.teamName : "",
+                soldTo: p.soldTo
+            };
+        });
+
+        res.json({
+            success: true,
+            totalSoldPlayers: playersList.length,
+            teams: teams.map(t => ({
+                name: t.name,
+                logo: t.logoUrl || t.logo || "",
+                initialBudget: t.initialBudget || 10000,
+                remainingBudget: t.budget || 0,
+                spent: (t.initialBudget || 10000) - (t.budget || 0)
+            })),
+            players: playersList
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// --- 2. BULK RESTORE soldTo, teamName, teamLogo, & auctionPrice ---
+app.post('/api/danger/restore-bulk-sales', async (req, res) => {
+    try {
+        const { assignments } = req.body; // Array of { playerId, teamName, price }
+        if (!Array.isArray(assignments) || assignments.length === 0) {
+            return res.status(400).json({ error: "No assignments provided." });
+        }
+
+        const db = mongoose.connection.db;
+        const teams = await db.collection('teams').find({}).toArray();
+        const teamLogoMap = {};
+        teams.forEach(t => {
+            teamLogoMap[t.name.toUpperCase()] = t.logoUrl || t.logo || "";
+        });
+
+        let restoredCount = 0;
+
+        for (let item of assignments) {
+            if (!item.playerId || !item.teamName) continue;
+
+            const priceNum = Number(item.price) || 0;
+            const tName = item.teamName.trim();
+            const tLogo = teamLogoMap[tName.toUpperCase()] || "";
+
+            await db.collection('players').updateOne(
+                { _id: new mongoose.Types.ObjectId(item.playerId) },
+                {
+                    $set: {
+                        soldTo: `${tName} (${priceNum}M)`,
+                        teamName: tName,
+                        teamLogo: tLogo,
+                        auctionPrice: priceNum,
+                        marketValue: priceNum,
+                        status: "Sold"
+                    }
+                }
+            );
+            restoredCount++;
+        }
+
+        res.json({
+            success: true,
+            message: `Successfully restored ${restoredCount} players with their exact soldTo prices and team logos!`
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Admin Server running on ${PORT}`));
