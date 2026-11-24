@@ -4185,5 +4185,55 @@ app.get('/api/danger/debug-team-sync', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+// --- READ-ONLY DB INSPECTOR (CHECK FOR SURVIVING AUCTION PRICES & COLLECTIONS) ---
+app.get('/api/danger/inspect-all-db', async (req, res) => {
+    try {
+        const db = mongoose.connection.db;
+
+        // 1. List every collection in this MongoDB database
+        const collections = await db.listCollections().toArray();
+        const collectionSummary = [];
+
+        for (let col of collections) {
+            const count = await db.collection(col.name).countDocuments();
+            const sample = await db.collection(col.name).findOne({});
+            collectionSummary.push({
+                collectionName: col.name,
+                documentCount: count,
+                fields: sample ? Object.keys(sample) : []
+            });
+        }
+
+        // 2. Check if any players still have auctionPrice, marketValue, or soldPrice > 0
+        const playersWithPrices = await db.collection('players').find({
+            $or: [
+                { auctionPrice: { $gt: 0 } },
+                { marketValue: { $gt: 0 } },
+                { soldPrice: { $gt: 0 } },
+                { currentBid: { $gt: 0 } }
+            ]
+        }).limit(10).toArray();
+
+        // 3. Check teams collection sample
+        const teamsSample = await db.collection('teams').find({}).limit(5).toArray();
+
+        res.json({
+            collectionsInDatabase: collectionSummary,
+            survivingPlayersWithPricesCount: playersWithPrices.length,
+            samplePlayersWithPrices: playersWithPrices.map(p => ({
+                name: p.name,
+                auctionPrice: p.auctionPrice,
+                marketValue: p.marketValue,
+                soldPrice: p.soldPrice,
+                currentBid: p.currentBid,
+                highestBidder: p.highestBidder,
+                soldTo: p.soldTo
+            })),
+            teamsSample: teamsSample
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Admin Server running on ${PORT}`));
