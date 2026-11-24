@@ -4141,5 +4141,49 @@ app.get('/api/danger/import-team-data', async (req, res) => {
         res.status(500).json({ error: err.message }); 
     }
 });
+// --- DIAGNOSTIC TOOL: CHECK WHY PLAYERS AREN'T MATCHING ---
+app.get('/api/danger/debug-team-sync', async (req, res) => {
+    try {
+        const PlayerModel = mongoose.models.Player || mongoose.model('Player');
+        const pesPlayers = await PlayerModel.find().lean();
+        
+        const AuctionPlayers = mongoose.connection.db.collection('players');
+        const report = [];
+
+        const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+        for (let p of pesPlayers) {
+            const cleanName = p.name ? p.name.trim() : "";
+            
+            // Search auction DB case-insensitively
+            const aPlayer = await AuctionPlayers.findOne({ 
+                name: { $regex: new RegExp("^" + escapeRegex(cleanName) + "$", "i") } 
+            });
+
+            let status = "✅ Matched & Ready";
+            let soldToVal = "None";
+
+            if (!aPlayer) {
+                status = "❌ MISMATCH: Player name not found in Auction DB";
+            } else if (!aPlayer.soldTo || aPlayer.soldTo === '-' || aPlayer.soldTo === 'UNSOLD') {
+                status = "⚠️ FOUND, but marked as UNSOLD / '-' in Auction DB";
+                soldToVal = aPlayer.soldTo;
+            } else {
+                soldToVal = aPlayer.soldTo;
+            }
+
+            report.push({
+                communityPlayerName: cleanName,
+                auctionDbFound: !!aPlayer,
+                auctionSoldToField: soldToVal,
+                syncStatus: status
+            });
+        }
+
+        res.json({ success: true, totalPlayers: pesPlayers.length, report });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Admin Server running on ${PORT}`));
