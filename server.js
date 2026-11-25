@@ -4371,5 +4371,39 @@ app.post('/api/danger/restore-bulk-sales', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+// --- DELETE SPECIFIC TEAM BY ID ---
+app.delete('/api/teams/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ success: false, error: "Invalid Team ID" });
+        }
+
+        const db = mongoose.connection.db;
+        const team = await db.collection('teams').findOne({ _id: new mongoose.Types.ObjectId(id) });
+
+        if (!team) {
+            return res.status(404).json({ success: false, error: "Team not found in database." });
+        }
+
+        // 1. Delete the team from active teams collection
+        await db.collection('teams').deleteOne({ _id: new mongoose.Types.ObjectId(id) });
+
+        // 2. Release players currently assigned to this team back to Free Agent
+        const PlayerModel = mongoose.models.Player || mongoose.model('Player');
+        await PlayerModel.updateMany(
+            { teamName: { $regex: new RegExp("^" + team.name.trim() + "$", "i") } },
+            { $set: { teamName: "Free Agent", teamLogo: "", soldTo: "-" } }
+        );
+
+        res.json({ 
+            success: true, 
+            message: `Team "${team.name}" deleted and its players released to Free Agent.` 
+        });
+    } catch (err) {
+        console.error("Delete Team Error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Admin Server running on ${PORT}`));
