@@ -4405,5 +4405,147 @@ app.delete('/api/teams/:id', async (req, res) => {
         res.status(500).json({ success: false, error: err.message });
     }
 });
+// --- EDIT / RENAME TEAM (WITH FULL CASCADE ACROSS DATABASE) ---
+app.put('/api/teams/:id/rename', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { newName, newLogo } = req.body;
+
+        if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ success: false, error: "Invalid Team ID." });
+        }
+        if (!newName || !newName.trim()) {
+            return res.status(400).json({ success: false, error: "New team name is required." });
+        }
+
+        const cleanNewName = newName.trim();
+        const cleanLogo = newLogo ? newLogo.trim() : null;
+        const db = mongoose.connection.db;
+
+        // 1. Find existing team
+        const team = await db.collection('teams').findOne({ _id: new mongoose.Types.ObjectId(id) });
+        if (!team) {
+            return res.status(404).json({ success: false, error: "Team not found." });
+        }
+
+        const oldName = team.name;
+        const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const oldRegex = new RegExp('^' + escapeRegex(oldName.trim()) + '$', 'i');
+
+        // 2. Check if another team already has this new name
+        if (oldName.toLowerCase() !== cleanNewName.toLowerCase()) {
+            const duplicate = await db.collection('teams').findOne({
+                name: new RegExp('^' + escapeRegex(cleanNewName) + '$', 'i')
+            });
+            if (duplicate) {
+                return res.status(400).json({ success: false, error: `A team named "${cleanNewName}" already exists.` });
+            }
+        }
+
+        // 3. Update the Team document itself
+        const teamUpdateFields = { name: cleanNewName };
+        if (cleanLogo) {
+            teamUpdateFields.logo = cleanLogo;
+            teamUpdateFields.logoUrl = cleanLogo;
+        }
+        await db.collection('teams').updateOne({ _id: team._id }, { $set: teamUpdateFields });
+
+        // 4. Cascade Name & Logo Update across ALL related collections
+        // A. Players (updates teamName, teamLogo, and preserves price inside soldTo!)
+        const affectedPlayers = await db.collection('players').find({
+            $or: [
+                { teamName: oldRegex },
+                { soldTo: new RegExp('^' + escapeRegex(oldName.trim()) + '(\\s|\\(|$)', 'i') }
+            ]
+        }).toArray();
+
+        for (let p of affectedPlayers) {
+            const pUpdate = {};
+            if (p.teamName && oldRegex.test(p.teamName.trim())) {
+                pUpdate.teamName = cleanNewName;
+            }
+            if (cleanLogo) {
+                pUpdate.teamLogo = cleanLogo;
+            }
+            if (p.soldTo && p.soldTo.trim().toLowerCase().startsWith(oldName.trim().toLowerCase())) {
+                pUpdate.soldTo = cleanNewName + p.soldTo.trim().substring(oldName.trim().length);
+            }
+            if (Object.keys(pUpdate).length > 0) {
+                await db.collection('players').updateOne({ _id: p._id }, { $set: pUpdate });
+            }
+        }
+
+        // Only cascade tournament/user records if the name actually changed
+        if (oldName.toLowerCase() !== cleanNewName.toLowerCase()) {
+            // B. Fixtures (Auction / Team matches)
+            await db.collection('fixtures').updateMany({ playerA: oldRegex }, { $set: { playerA: cleanNewName } });
+            await db.collection('fixtures').updateMany({ playerB: oldRegex }, { $set: { playerB: cleanNewName } });
+
+            // C. Standings (Points Tables)
+            await db.collection('standings').updateMany({ participant: oldRegex }, { $set: { participant: cleanNewName } });
+
+            // D. Tournaments participant arrays
+            const tours = await db.collection('tournaments').find({ participants: oldRegex }).toArray();
+            for (let t of tours) {
+                const updatedParts = t.participants.map(part => oldRegex.test(part) ? cleanNewName : part);
+                await db.collection('tournaments').updateOne({ _id: t._id }, { $set: { participants: updatedParts } });
+            }
+
+            // E. Captain Logins (Users collection)
+            await db.collection('users').updateMany(
+                { name: oldRegex, role: 'captain' },
+                { $set: { name: cleanNewName } }
+            );
+
+            // F. Transfer Market Listings
+            await db.collection('transferlistings').updateMany({ fromTeam: oldRegex }, { $set: { fromTeam: cleanNewName } });
+            await db.collection('transferlistings').updateMany({ targetTeam: oldRegex }, { $set: { targetTeam: cleanNewName } });
+        }
+
+        console.log(`🛡️ [Team Renamed] "${oldName}" -> "${cleanNewName}" (${affectedPlayers.length} players updated)`);
+        res.json({
+            success: true,
+            message: `Team "${oldName}" renamed to "${cleanNewName}" across all ${affectedPlayers.length} players, matches, and tables!`
+        });
+
+    } catch (err) {
+        console.error("Rename Team Error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+// --- DELETE SPECIFIC TEAM BY ID ---
+app.delete('/api/teams/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ success: false, error: "Invalid Team ID" });
+        }
+
+        const db = mongoose.connection.db;
+        const team = await db.collection('teams').findOne({ _id: new mongoose.Types.ObjectId(id) });
+
+        if (!team) {
+            return res.status(404).json({ success: false, error: "Team not found in database." });
+        }
+
+        // 1. Delete the team from active teams collection
+        await db.collection('teams').deleteOne({ _id: new mongoose.Types.ObjectId(id) });
+
+        // 2. Release players currently assigned to this team back to Free Agent
+        const PlayerModel = mongoose.models.Player || mongoose.model('Player');
+        await PlayerModel.updateMany(
+            { teamName: { $regex: new RegExp("^" + team.name.trim() + "$", "i") } },
+            { $set: { teamName: "Free Agent", teamLogo: "", soldTo: "-" } }
+        );
+
+        res.json({ 
+            success: true, 
+            message: `Team "${team.name}" deleted and its players released to Free Agent.` 
+        });
+    } catch (err) {
+        console.error("Delete Team Error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Admin Server running on ${PORT}`));
